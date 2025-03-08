@@ -18,7 +18,7 @@ multi_line_output = 3
 py_version = 313
 
 [tool.poetry]
-packages = [{include = "django_kubernetes_backend", from = "src"}]
+packages = [{include = "django_kubernetes_backend"}]
 
 [tool.poetry.group.dev.dependencies]
 black = "^25.1.0"
