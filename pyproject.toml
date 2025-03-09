@@ -7,7 +7,7 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = ["kubernetes (>=32.0.1,<33.0.0)", "django (>=5.1.7,<6.0.0)"]
 
 [tool.black]
 target-version = ['py313']
