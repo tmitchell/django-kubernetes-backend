@@ -63,11 +63,8 @@ class TestKubernetesManager(unittest.TestCase):
 
         cls.ManagerCustomModel = ManagerCustomModel
 
-    def setUp(self):
-        self.qs = KubernetesQuerySet(self.CorePodModel)
-        self.qs._result_cache = None
-
     def test_invalid_resource_type_raises_value_error(self):
+        # Arrange & Act & Assert
         with self.assertRaises(ValueError):
 
             class InvalidModel(KubernetesModel):
@@ -80,6 +77,7 @@ class TestKubernetesManager(unittest.TestCase):
                     kind = "Thing"
 
     def test_deserialize_resource(self):
+        # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)
         resource_data = Mock(
             to_dict=lambda: {
@@ -92,26 +90,27 @@ class TestKubernetesManager(unittest.TestCase):
                 "spec": {"containers": [{"name": "test"}]},
             }
         )
+
+        # Act
         instance = qs._deserialize_resource(resource_data)
         self.assertEqual(instance.name, "pod1")
         self.assertEqual(instance.namespace, "default")
         self.assertEqual(instance.labels, {"app": "test"})
         self.assertEqual(instance.annotations, {"key": "value"})
-        self.assertEqual(
-            instance.spec, {"containers": [{"name": "test"}]}
-        )  # Direct access
+        self.assertEqual(instance.spec, {"containers": [{"name": "test"}]})
 
     def test_iter(self):
         # Arrange
+        qs = KubernetesQuerySet(self.CorePodModel)
         pod1 = Mock()
         pod1.name = "pod1"
         pod2 = Mock()
         pod2.name = "pod2"
-        self.qs._result_cache = [pod1, pod2]
+        qs._result_cache = [pod1, pod2]
 
         # Act
-        with patch.object(self.qs, "_fetch_all") as mock_fetch:
-            result = list(self.qs)
+        with patch.object(qs, "_fetch_all") as mock_fetch:
+            result = list(qs)
 
         # Assert
         self.assertEqual(len(result), 2)
@@ -121,6 +120,7 @@ class TestKubernetesManager(unittest.TestCase):
 
     @patch("kubernetes_backend.models.manager.KubernetesQuerySet._fetch_all")
     def test_getitem_index(self, mock_fetch_all):
+        # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)
         mock_fetch_all.return_value = None
         pod1 = Mock()
@@ -128,12 +128,17 @@ class TestKubernetesManager(unittest.TestCase):
         pod2 = Mock()
         pod2.name = "pod2"
         qs._result_cache = [pod1, pod2]
+
+        # Act
         item = qs[1]
+
+        # Assert
         self.assertEqual(item.name, "pod2")
         mock_fetch_all.assert_not_called()
 
     @patch("kubernetes_backend.models.manager.KubernetesQuerySet._fetch_all")
     def test_getitem_slice(self, mock_fetch_all):
+        # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)
         mock_fetch_all.return_value = None
         pod1 = Mock()
@@ -143,7 +148,11 @@ class TestKubernetesManager(unittest.TestCase):
         pod3 = Mock()
         pod3.name = "pod3"
         qs._result_cache = [pod1, pod2, pod3]
+
+        # Act
         items = qs[1:3]
+
+        # Assert
         self.assertEqual(len(items), 2)
         self.assertEqual(items[0].name, "pod2")
         self.assertEqual(items[1].name, "pod3")
@@ -151,29 +160,47 @@ class TestKubernetesManager(unittest.TestCase):
 
     @patch("kubernetes_backend.models.manager.KubernetesQuerySet._fetch_all")
     def test_getitem_invalid_type(self, mock_fetch_all):
+        # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)
+
+        # Act & Assert
         with self.assertRaises(TypeError):
             qs["invalid"]
 
     @patch("kubernetes_backend.models.manager.KubernetesQuerySet._fetch_all")
     def test_len(self, mock_fetch_all):
+        # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)
         mock_fetch_all.return_value = None
         qs._result_cache = [Mock(name="pod1"), Mock(name="pod2")]
+
+        # Act
         length = len(qs)
+
+        # Assert
         self.assertEqual(length, 2)
         mock_fetch_all.assert_not_called()  # Updated behavior
 
     def test_filter(self):
+        # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)
+
+        # Act
         new_qs = qs.filter(name="test")
+
+        # Assert
         self.assertIsInstance(new_qs, KubernetesQuerySet)
         self.assertEqual(new_qs.model, self.CorePodModel)
         self.assertIsNot(new_qs, qs)
 
     def test_manager_uses_queryset(self):
+        # Arrange
         manager = KubernetesManager()
+
+        # Act
         qs = manager.get_queryset()
+
+        # Assert
         self.assertIsInstance(qs, KubernetesQuerySet)
 
 
