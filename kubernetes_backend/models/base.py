@@ -17,18 +17,20 @@ class KubernetesModelBase(ModelBase):
         # Skip processing for the base class itself
         if name == "KubernetesModel":
             return new_class
-        # Extract KubernetesMeta class configuration and check required attributes
-        required_attrs = ("kind",)
+
+        # Extract KubernetesMeta class configuration
         meta = getattr(new_class, "KubernetesMeta", None)
         if meta is None:
             raise ValueError(
                 "KubernetesModel subclasses must define a KubernetesMeta class"
             )
-        missing_attrs = [attr for attr in required_attrs if not hasattr(meta, attr)]
+
+        # Check required attributes on meta class
+        missing_attrs = [attr for attr in ("kind",) if not hasattr(meta, attr)]
         if missing_attrs:
             raise ValueError(f"KubernetesMeta must define {', '.join(missing_attrs)}")
 
-        # Store Kubernetes resource configuration in _meta
+        # Store Kubernetes resource configuration in _meta with some defaults
         new_meta = new_class._meta
         new_meta.kubernetes_group = getattr(meta, "group", "core")
         new_meta.kubernetes_version = getattr(meta, "version", "v1")
