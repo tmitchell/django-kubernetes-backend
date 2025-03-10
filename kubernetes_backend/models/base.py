@@ -1,4 +1,5 @@
 import logging
+from functools import lru_cache
 
 from django.db import models
 from django.db.models.base import ModelBase
@@ -51,6 +52,7 @@ class KubernetesModelBase(ModelBase):
         return new_class
 
 
+@lru_cache(maxsize=1)
 def get_resource_schema(group, version, kind):
     """
     Fetch the OpenAPI schema for a specific Kubernetes resource.
