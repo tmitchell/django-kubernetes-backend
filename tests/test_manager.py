@@ -21,6 +21,7 @@ class TestKubernetesManager(unittest.TestCase):
                 group = "core"
                 version = "v1"
                 kind = "Pod"
+                require_schema = False
 
             spec = models.JSONField(default=dict, blank=True, null=True)
 
@@ -35,6 +36,7 @@ class TestKubernetesManager(unittest.TestCase):
                 version = "v1"
                 kind = "Namespace"
                 cluster_scoped = True
+                require_schema = False
 
         cls.CoreNamespaceModel = CoreNamespaceModel
 
@@ -46,6 +48,7 @@ class TestKubernetesManager(unittest.TestCase):
                 group = "rbac"
                 version = "v1"
                 kind = "Role"
+                require_schema = False
 
         cls.RbacRoleModel = RbacRoleModel
 
@@ -57,11 +60,10 @@ class TestKubernetesManager(unittest.TestCase):
                 group = "custom"
                 version = "example.com/v1"
                 kind = "CustomResource"
+                require_schema = False
 
         cls.ManagerCustomModel = ManagerCustomModel
 
-    # TODO: move schema validation into the metaclass to catch errors early
-    @unittest.expectedFailure
     def test_invalid_group_raises_value_error(self):
         # Arrange & Act & Assert
         with self.assertRaises(ValueError):

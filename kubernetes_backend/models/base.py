@@ -37,6 +37,7 @@ class KubernetesModelBase(ModelBase):
         new_meta.kubernetes_kind = meta.kind
         new_meta.kubernetes_plural = getattr(meta, "plural", f"{meta.kind.lower()}s")
         new_meta.cluster_scoped = getattr(meta, "cluster_scoped", False)
+        new_meta.require_schema = getattr(meta, "require_schema", True)
 
         # Fetch and generate fields from schema
         schema = get_resource_schema(
@@ -51,6 +52,10 @@ class KubernetesModelBase(ModelBase):
             for field_name, field in generated_fields.items():
                 if field_name not in attrs:
                     new_class.add_to_class(field_name, field)
+        elif new_meta.require_schema:
+            raise ValueError(
+                f"Schema required but not found for {new_meta.kubernetes_kind}"
+            )
         return new_class
 
 
@@ -62,14 +67,11 @@ def get_resource_schema(group, version, kind):
     openapi_schema = get_openapi_schema()
 
     # Map group/version/kind to schema key
-    if group == "core":
-        key = f"io.k8s.api.core.{version}.{kind}"
-    else:
-        key = (
-            f"io.k8s.api.{group}.{version}.{kind}"
-            if group.startswith("k8s.io")
-            else f"io.{group}.{version}.{kind}"
-        )
+    key = (
+        f"io.k8s.api.{group}.{version}.{kind}"
+        if group == "core" or group.startswith("k8s.io")
+        else f"io.{group}.{version}.{kind}"
+    )
     schema = openapi_schema.get("definitions", {}).get(key, {})
     if not schema:
         logger.warning(f"No schema found for {key}, using default")
