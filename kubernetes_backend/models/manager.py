@@ -84,8 +84,10 @@ class KubernetesQuerySet:
 
     def _deserialize_resource(self, resource_data):
         """Deserialize a Kubernetes resource into a Django model instance."""
-        # Convert Kubernetes client model object to a dictionary
-        resource_dict = resource_data.to_dict()
+        if hasattr(resource_data, "to_dict"):
+            resource_dict = resource_data.to_dict()
+        else:
+            resource_dict = resource_data
         metadata = resource_dict.get("metadata", {})
         instance = self.model(
             name=metadata.get("name", ""),
@@ -93,7 +95,6 @@ class KubernetesQuerySet:
             labels=metadata.get("labels", {}),
             annotations=metadata.get("annotations", {}),
         )
-        # Populate dynamically generated fields
         for field in self.model._meta.fields:
             field_name = field.name
             if field_name not in ("name", "namespace", "labels", "annotations", "id"):
@@ -124,14 +125,16 @@ class KubernetesQuerySet:
         """
         Allow iteration over the queryset (e.g. for pod in Pod.objects.all()).
         """
-        self._fetch_all()
+        if self._result_cache is None:
+            self._fetch_all()
         return iter(self._result_cache)
 
     def __getitem__(self, key):
         """
         Allow indexing and slicing (e.g. Pod.objects.all()[1:5]).
         """
-        self._fetch_all()
+        if self._result_cache is None:
+            self._fetch_all()
         if isinstance(key, slice):
             return self._result_cache[key]
         elif isinstance(key, int):
@@ -143,7 +146,8 @@ class KubernetesQuerySet:
         """
         Allow calling len(queryset).
         """
-        self._fetch_all()
+        if self._result_cache is None:
+            self._fetch_all()
         return len(self._result_cache)
 
     def filter(self, **kwargs):
@@ -151,7 +155,6 @@ class KubernetesQuerySet:
         Implement filtering logic (e.g. using Kubernetes field selectors or labels).
         """
         # TODO: Implement filtering by fetching and filtering results
-        # For now, return a new queryset (placeholder)
         return self._clone()
 
 

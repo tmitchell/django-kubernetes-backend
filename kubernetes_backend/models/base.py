@@ -75,7 +75,6 @@ def map_schema_to_django_field(schema, field_name):
 
     field_type = schema.get("type")
     format_type = schema.get("format")
-    items = schema.get("items")
     properties = schema.get("properties")
 
     if field_type == "string":
@@ -89,19 +88,6 @@ def map_schema_to_django_field(schema, field_name):
     elif field_type == "boolean":
         return models.BooleanField(default=False, blank=True, null=True)
     elif field_type == "array":
-        from django.contrib.postgres.fields import ArrayField
-
-        if items:
-            item_field = map_schema_to_django_field(items, f"{field_name}_item")
-            if isinstance(item_field, models.CharField):
-                return ArrayField(
-                    models.CharField(max_length=255),
-                    default=list,
-                    blank=True,
-                    null=True,
-                )
-            # For complex array items, fall back to JSONField
-            return models.JSONField(default=list, blank=True, null=True)
         return models.JSONField(default=list, blank=True, null=True)
     elif field_type == "object" or properties:
         return models.JSONField(default=dict, blank=True, null=True)

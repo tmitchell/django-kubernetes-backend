@@ -111,15 +111,15 @@ class KubernetesModel(models.Model, metaclass=KubernetesModelBase):
         }
 
         # Add dynamically generated fields (e.g. spec, status) to the resource data
-        for field_name, field in self._meta.fields.items():
-            if field_name not in ("name", "namespace", "labels", "annotations", "id"):
-                value = getattr(self, field_name, None)
+        for field in self._meta.fields:
+            if field.name not in ("name", "namespace", "labels", "annotations", "id"):
+                value = getattr(self, field.name, None)
                 if value is not None:
                     # Handle nested fields (e.g. spec, status) appropriately
-                    if field_name in ("spec", "status"):
-                        resource_data[field_name] = value
+                    if field.name in ("spec", "status"):
+                        resource_data[field.name] = value
                     else:
-                        resource_data.setdefault("spec", {})[field_name] = value
+                        resource_data.setdefault("spec", {})[field.name] = value
 
         return resource_data
 
