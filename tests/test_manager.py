@@ -1,20 +1,9 @@
 import unittest
 from unittest.mock import Mock, patch
 
-import django
-
-# Configure Django settings and initialize app registry before imports
-from django.conf import settings
-
-if not settings.configured:
-    settings.configure(
-        DEBUG=True,
-        INSTALLED_APPS=["kubernetes_backend"],
-    )
-    django.setup()
-
 from django.db import models
 
+import tests.setup  # noqa: F401; Imported for Django setup side-effect
 from kubernetes_backend.models.manager import KubernetesManager, KubernetesQuerySet
 from kubernetes_backend.models.model import KubernetesModel
 
