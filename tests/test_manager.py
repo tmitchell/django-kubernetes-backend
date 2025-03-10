@@ -184,7 +184,21 @@ class TestKubernetesManager(unittest.TestCase):
 
         # Assert
         self.assertEqual(length, 2)
-        mock_fetch_all.assert_not_called()  # Updated behavior
+        mock_fetch_all.assert_not_called()
+
+    @patch("kubernetes_backend.models.manager.KubernetesQuerySet._fetch_all")
+    def test_count(self, mock_fetch_all):
+        # Arrange
+        qs = KubernetesQuerySet(self.CorePodModel)
+        mock_fetch_all.return_value = None
+        qs._result_cache = [Mock(name="pod1"), Mock(name="pod2")]
+
+        # Act
+        cnt = qs.count()
+
+        # Assert
+        self.assertEqual(cnt, 2)
+        mock_fetch_all.assert_not_called()
 
     def test_filter(self):
         # Arrange

@@ -136,6 +136,14 @@ class KubernetesQuerySet:
             self._fetch_all()
         return len(self._result_cache)
 
+    def count(self):
+        """
+        Return the number of records in the queryset
+        """
+        if self._result_cache is None:
+            self._fetch_all()
+        return len(self._result_cache)
+
     def filter(self, **kwargs):
         """
         Implement filtering logic (e.g. using Kubernetes field selectors or labels).
