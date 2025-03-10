@@ -16,41 +16,30 @@ class KubernetesModelBase(ModelBase):
         # Skip processing for the base class itself
         if name == "KubernetesModel":
             return new_class
-        # Extract KubernetesMeta class configuration
-        kubernetes_meta = getattr(new_class, "KubernetesMeta", None)
-        if not kubernetes_meta or not hasattr(kubernetes_meta, "resource_type"):
+        # Extract KubernetesMeta class configuration and check required attributes
+        required_attrs = ("kind",)
+        meta = getattr(new_class, "KubernetesMeta", None)
+        if meta is None:
             raise ValueError(
-                "KubernetesModel subclasses must define a KubernetesMeta class "
-                "that includes 'resource_type'."
+                "KubernetesModel subclasses must define a KubernetesMeta class"
             )
+        missing_attrs = [attr for attr in required_attrs if not hasattr(meta, attr)]
+        if missing_attrs:
+            raise ValueError(f"KubernetesMeta must define {', '.join(missing_attrs)}")
 
         # Store Kubernetes resource configuration in _meta
-        new_class._meta.kubernetes_resource_type = kubernetes_meta.resource_type
-        new_class._meta.kubernetes_api_version = getattr(
-            kubernetes_meta, "api_version", "v1"
-        )
-        new_class._meta.kubernetes_kind = getattr(kubernetes_meta, "kind", None)
-        new_class._meta.kubernetes_namespace = getattr(
-            kubernetes_meta, "namespace", "default"
-        )
-        new_class._meta.cluster_scoped = getattr(
-            kubernetes_meta, "cluster_scoped", False
-        )
-
-        # Validate configuration
-        if (
-            new_class._meta.cluster_scoped
-            and new_class._meta.kubernetes_namespace != "default"
-        ):
-            raise ValueError(
-                "Cluster-scoped resources cannot specify a namespace in KubernetesMeta."
-            )
+        new_meta = new_class._meta
+        new_meta.kubernetes_group = getattr(meta, "group", "core")
+        new_meta.kubernetes_version = getattr(meta, "version", "v1")
+        new_meta.kubernetes_kind = meta.kind
+        new_meta.kubernetes_plural = getattr(meta, "plural", f"{meta.kind.lower()}s")
+        new_meta.cluster_scoped = getattr(meta, "cluster_scoped", False)
 
         # Fetch and generate fields from schema
         schema = get_resource_schema(
-            new_class._meta.kubernetes_resource_type,
-            new_class._meta.kubernetes_api_version,
-            new_class._meta.kubernetes_kind,
+            new_meta.kubernetes_group,
+            new_meta.kubernetes_version,
+            new_meta.kubernetes_kind,
         )
         logger.debug(f"Schema for {new_class._meta.kubernetes_kind}: {schema}")
         if schema:
@@ -62,19 +51,24 @@ class KubernetesModelBase(ModelBase):
         return new_class
 
 
-def get_resource_schema(resource_type, api_version, kind):
+def get_resource_schema(group, version, kind):
     """
     Fetch the OpenAPI schema for a specific Kubernetes resource.
     """
     openapi_schema = get_openapi_schema()
-    if resource_type == "core":
-        resource_key = f"io.k8s.api.core.{api_version}.{kind}"
-    elif resource_type in ("custom", "rbac"):
-        resource_key = f"io.k8s.api.{api_version.replace('/', '.')}.{kind}"
+
+    # Map group/version/kind to schema key
+    if group == "core":
+        key = f"io.k8s.api.core.{version}.{kind}"
     else:
-        raise ValueError(f"Unsupported resource type: {resource_type}")
-    schema = openapi_schema.get("definitions", {}).get(resource_key, {})
-    logger.debug(f"Fetching schema for {resource_key}: {schema}")
+        key = (
+            f"io.k8s.api.{group}.{version}.{kind}"
+            if group.startswith("k8s.io")
+            else f"io.{group}.{version}.{kind}"
+        )
+    schema = openapi_schema.get("definitions", {}).get(key, {})
+    if not schema:
+        logger.warning(f"No schema found for {key}, using default")
     return schema
 
 
@@ -82,8 +76,6 @@ def map_schema_to_django_field(schema, field_name):
     """
     Map a Kubernetes OpenAPI schema field to a Django model field.
     """
-    if not schema:
-        return models.JSONField(default=dict, blank=True, null=True)
     field_type = schema.get("type")
     format_type = schema.get("format")
     if field_type == "string":
@@ -98,10 +90,7 @@ def map_schema_to_django_field(schema, field_name):
         return models.BooleanField(default=False, blank=True, null=True)
     elif field_type == "array":
         return models.JSONField(default=list, blank=True, null=True)
-    elif field_type == "object" or "properties" in schema or "$ref" in schema:
-        return models.JSONField(default=dict, blank=True, null=True)
-    else:
-        # Fallback for unknown or complex types
+    else:  # object, $ref, or unknown
         return models.JSONField(default=dict, blank=True, null=True)
 
 

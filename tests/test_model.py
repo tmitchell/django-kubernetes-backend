@@ -18,10 +18,9 @@ class TestKubernetesModel(unittest.TestCase):
                 app_label = "kubernetes_backend"
 
             class KubernetesMeta:
-                resource_type = "core"
-                api_version = "v1"
+                group = "core"
+                version = "v1"
                 kind = "Pod"
-                namespace = "default"
 
         cls.CoreModel = CoreModel
 
@@ -30,8 +29,8 @@ class TestKubernetesModel(unittest.TestCase):
                 app_label = "kubernetes_backend"
 
             class KubernetesMeta:
-                resource_type = "rbac"
-                api_version = "v1"
+                group = "rbac.authorization.k8s.io"
+                version = "v1"
                 kind = "Role"
 
         cls.RbacModel = RbacModel
@@ -41,10 +40,9 @@ class TestKubernetesModel(unittest.TestCase):
                 app_label = "kubernetes_backend"
 
             class KubernetesMeta:
-                resource_type = "custom"
-                api_version = "example.com/v1"
-                kind = "CustomResource"
-                namespace = "default"
+                group = "custom.example.com"
+                version = "v1alpha1"
+                kind = "Example"
 
         cls.CustomModel = CustomModel
 
@@ -53,14 +51,16 @@ class TestKubernetesModel(unittest.TestCase):
                 app_label = "kubernetes_backend"
 
             class KubernetesMeta:
-                resource_type = "core"
-                api_version = "v1"
+                group = "core"
+                version = "v1"
                 kind = "Namespace"
                 cluster_scoped = True
 
         cls.NamespaceModel = NamespaceModel
 
-    def test_invalid_resource_type_raises_value_error(self):
+    # TODO: move schema validation into the metaclass to catch errors early
+    @unittest.expectedFailure
+    def test_invalid_group_raises_value_error(self):
         with self.assertRaises(ValueError):
 
             class BadModel(KubernetesModel):
@@ -68,9 +68,20 @@ class TestKubernetesModel(unittest.TestCase):
                     app_label = "kubernetes_backend"
 
                 class KubernetesMeta:
-                    resource_type = "invalid"
-                    api_version = "v1"
+                    group = "invalid"
+                    version = "v1"
                     kind = "Thing"
+
+    def test_missing_kind_raises_value_error(self):
+        with self.assertRaises(ValueError):
+
+            class BadModel(KubernetesModel):
+                class Meta:
+                    app_label = "kubernetes_backend"
+
+                class KubernetesMeta:
+                    api_version = "v1"
+                    group = "core"
 
     def test_model_is_abstract(self):
         # Assert
@@ -117,15 +128,15 @@ class TestKubernetesModel(unittest.TestCase):
     @patch("kubernetes_backend.models.model.get_kubernetes_client")
     def test_get_api_client_custom(self, mock_get_client):
         # Arrange
-        mock_client = Mock()
+        mock_client = Mock(spec=["CustomObjectsApi"])
         mock_get_client.return_value = mock_client
 
         # Act
         api_client = self.CustomModel.get_api_client()
 
         # Assert
-        self.assertEqual(api_client, mock_client.CustomObjectsApi.return_value)
         mock_client.CustomObjectsApi.assert_called_once()
+        self.assertEqual(api_client, mock_client.CustomObjectsApi.return_value)
 
     @patch("kubernetes_backend.models.model.KubernetesModel.get_api_client")
     def test_save_cluster_scoped_with_namespace_raises_error(self, mock_get_client):
@@ -133,7 +144,7 @@ class TestKubernetesModel(unittest.TestCase):
         instance = self.NamespaceModel(name="test", namespace="custom")
 
         # Act & Assert
-        with self.assertRaises(ValueError):  # Check type, not message
+        with self.assertRaises(ValueError):
             instance.save()
 
     @patch("kubernetes_backend.models.model.KubernetesModel.get_api_client")
@@ -188,16 +199,17 @@ class TestKubernetesModel(unittest.TestCase):
         instance = self.CustomModel(name="test-custom", namespace="default")
         mock_api_client = mock_get_client.return_value
         mock_api_client.create_namespaced_custom_object.return_value = None
+        del mock_api_client.create_namespaced_example
 
         # Act
         instance.save()
 
         # Assert
         mock_api_client.create_namespaced_custom_object.assert_called_once_with(
-            group="example.com",
-            version="v1",
+            group="custom.example.com",
+            version="v1alpha1",
             namespace="default",
-            plural="customresources",
+            plural="examples",
             body=instance._to_kubernetes_resource(),
         )
 

@@ -1,6 +1,7 @@
 import logging
 
 from django.db.models.manager import BaseManager
+from kubernetes import client
 
 logger = logging.getLogger(__name__)
 
@@ -11,123 +12,100 @@ class KubernetesQuerySet:
         self._result_cache = None
 
     def _fetch_all(self):
-        """
-        Fetch all resources from Kubernetes and cache the results.
-        """
-        if self._result_cache is None:
-            api_client = self.model.get_api_client()
-            if self.model._meta.kubernetes_resource_type == "core":
-                if self.model._meta.cluster_scoped:
-                    if self.model._meta.kubernetes_kind == "Namespace":
-                        response = api_client.list_namespace()
-                        self._result_cache = [
-                            self._deserialize_resource(item) for item in response.items
-                        ]
-                else:
-                    response = api_client.list_namespaced_pod(
-                        namespace=self.model._meta.kubernetes_namespace
-                    )
-                    self._result_cache = [
-                        self._deserialize_resource(item) for item in response.items
-                    ]
-            elif self.model._meta.kubernetes_resource_type == "rbac":
-                if self.model._meta.cluster_scoped:
-                    if self.model._meta.kubernetes_kind == "ClusterRole":
-                        response = api_client.list_cluster_role()
-                        self._result_cache = [
-                            self._deserialize_resource(item) for item in response.items
-                        ]
-                    elif self.model._meta.kubernetes_kind == "ClusterRoleBinding":
-                        response = api_client.list_cluster_role_binding()
-                        self._result_cache = [
-                            self._deserialize_resource(item) for item in response.items
-                        ]
-                else:
-                    if self.model._meta.kubernetes_kind == "Role":
-                        response = api_client.list_namespaced_role(
-                            namespace=self.model._meta.kubernetes_namespace
-                        )
-                        self._result_cache = [
-                            self._deserialize_resource(item) for item in response.items
-                        ]
-                    elif self.model._meta.kubernetes_kind == "RoleBinding":
-                        response = api_client.list_namespaced_role_binding(
-                            namespace=self.model._meta.kubernetes_namespace
-                        )
-                        self._result_cache = [
-                            self._deserialize_resource(item) for item in response.items
-                        ]
-            elif self.model._meta.kubernetes_resource_type == "custom":
-                group, version = self.model._meta.kubernetes_api_version.split("/")
-                if self.model._meta.cluster_scoped:
-                    response = api_client.list_cluster_custom_object(
-                        group=group,
-                        version=version,
-                        plural=f"{self.model._meta.kubernetes_kind.lower()}s",
-                    )
-                    self._result_cache = [
-                        self._deserialize_resource(item)
-                        for item in response.get("items", [])
-                    ]
-                else:
-                    response = api_client.list_namespaced_custom_object(
-                        group=group,
-                        version=version,
-                        namespace=self.model._meta.kubernetes_namespace,
-                        plural=f"{self.model._meta.kubernetes_kind.lower()}s",
-                    )
-                    self._result_cache = [
-                        self._deserialize_resource(item)
-                        for item in response.get("items", [])
-                    ]
-            else:
-                raise ValueError(
-                    f"Unsupported resource type: "
-                    f"{self.model._meta.kubernetes_resource_type}"
-                )
+        api = self.model.get_api_client()
+        group = self.model._meta.kubernetes_group
+        version = self.model._meta.kubernetes_version
+        kind = self.model._meta.kubernetes_kind
+        plural = self.model._meta.kubernetes_plural
 
-    def _deserialize_resource(self, resource_data):
+        try:
+            if group in (
+                "apps",
+                "batch",
+                "core",
+                "autoscaling",
+                "networking",
+                "rbac.authorization.k8s.io",
+            ):
+                method = f"list_{kind.lower()}_for_all_namespaces"
+                response = getattr(api, method)()
+                items = response.items
+            else:
+                if self.model._meta.cluster_scoped:
+                    response = api.list_cluster_custom_object(group, version, plural)
+                    items = response["items"]
+                else:
+                    # Fetch CRDs across all namespaces
+                    core_api = client.CoreV1Api()
+                    namespaces = [
+                        ns.metadata.name for ns in core_api.list_namespace().items
+                    ]
+                    items = []
+                    for ns in namespaces:
+                        try:
+                            response = api.list_namespaced_custom_object(
+                                group, version, ns, plural
+                            )
+                            items.extend(response["items"])
+                        except client.ApiException as e:
+                            if (
+                                e.status != 404
+                            ):  # Ignore if CRD doesn’t exist in this namespace
+                                logger.warning(f"Failed to list {kind} in {ns}: {e}")
+
+        except client.ApiException as e:
+            logger.error(f"Failed to list {kind}: {e}")
+            return []
+
+        self._result_cache = [self._deserialize_resource(item) for item in items]
+        return self
+
+    def _deserialize_resource(self, resource):
         """Deserialize a Kubernetes resource into a Django model instance."""
-        if hasattr(resource_data, "to_dict"):
-            resource_dict = resource_data.to_dict()
+        if isinstance(resource, dict):
+            resource_dict = resource
+        elif hasattr(resource, "to_dict") and callable(resource.to_dict):
+            resource_dict = resource.to_dict()
         else:
-            resource_dict = resource_data  # Typo fixed: was resource_dict
+            raise ValueError("resource_data must be a dict or have a to_dict() method")
         logger.debug(f"Resource dict: {resource_dict}")
-        metadata = resource_dict.get("metadata", {})
+
+        metadata = resource_dict["metadata"]
         instance = self.model(
-            name=metadata.get("name", ""),
+            uid=metadata["uid"],
+            name=metadata["name"],
             namespace=metadata.get("namespace", None),
             labels=metadata.get("labels", {}),
             annotations=metadata.get("annotations", {}),
         )
-        logger.debug(f"Model fields: {[f.name for f in self.model._meta.fields]}")
+
         for field in self.model._meta.fields:
             field_name = field.name
             logger.debug(f"Processing field: {field_name}")
-            if field_name not in ("name", "namespace", "labels", "annotations", "id"):
-                if field_name in resource_dict:
-                    value = resource_dict[field_name]
-                    logger.debug(f"Setting {field_name} to {value}")
-                    setattr(instance, field_name, value)
-                elif "spec" in resource_dict and field_name in resource_dict["spec"]:
-                    value = resource_dict["spec"][field_name]
-                    logger.debug(f"Setting {field_name} to {value}")
-                    setattr(instance, field_name, value)
+            if field_name not in ("uid", "name", "namespace", "labels", "annotations"):
+                value = resource_dict.get(field_name, None)
+                logger.debug(f"Setting {field_name} to {value}")
+                setattr(instance, field_name, value)
+
         return instance
 
     def all(self):
         """
         Return a new queryset representing all resources.
         """
-        return self._clone()
+        qs = self._clone()
+        if qs._result_cache is None:
+            qs._fetch_all()
+        return qs
 
     def _clone(self):
         """
         Create a new queryset instance with the same configuration.
         """
-        new_queryset = KubernetesQuerySet(self.model)
-        new_queryset._result_cache = self._result_cache
-        return new_queryset
+        qs = KubernetesQuerySet(self.model)
+        if self._result_cache is not None:
+            qs._result_cache = self._result_cache.copy()
+        return qs
 
     def __iter__(self):
         """

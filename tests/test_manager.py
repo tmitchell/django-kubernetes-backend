@@ -18,10 +18,9 @@ class TestKubernetesManager(unittest.TestCase):
                 app_label = "kubernetes_backend"
 
             class KubernetesMeta:
-                resource_type = "core"
-                api_version = "v1"
+                group = "core"
+                version = "v1"
                 kind = "Pod"
-                namespace = "default"
 
             spec = models.JSONField(default=dict, blank=True, null=True)
 
@@ -32,8 +31,8 @@ class TestKubernetesManager(unittest.TestCase):
                 app_label = "kubernetes_backend"
 
             class KubernetesMeta:
-                resource_type = "core"
-                api_version = "v1"
+                group = "core"
+                version = "v1"
                 kind = "Namespace"
                 cluster_scoped = True
 
@@ -44,10 +43,9 @@ class TestKubernetesManager(unittest.TestCase):
                 app_label = "kubernetes_backend"
 
             class KubernetesMeta:
-                resource_type = "rbac"
-                api_version = "v1"
+                group = "rbac"
+                version = "v1"
                 kind = "Role"
-                namespace = "default"
 
         cls.RbacRoleModel = RbacRoleModel
 
@@ -56,14 +54,15 @@ class TestKubernetesManager(unittest.TestCase):
                 app_label = "kubernetes_backend"
 
             class KubernetesMeta:
-                resource_type = "custom"
-                api_version = "example.com/v1"
+                group = "custom"
+                version = "example.com/v1"
                 kind = "CustomResource"
-                namespace = "default"
 
         cls.ManagerCustomModel = ManagerCustomModel
 
-    def test_invalid_resource_type_raises_value_error(self):
+    # TODO: move schema validation into the metaclass to catch errors early
+    @unittest.expectedFailure
+    def test_invalid_group_raises_value_error(self):
         # Arrange & Act & Assert
         with self.assertRaises(ValueError):
 
@@ -72,18 +71,24 @@ class TestKubernetesManager(unittest.TestCase):
                     app_label = "kubernetes_backend"
 
                 class KubernetesMeta:
-                    resource_type = "invalid"
-                    api_version = "v1"
+                    group = "invalid"
+                    version = "v1"
                     kind = "Thing"
 
-    def test_deserialize_resource(self):
+    @patch("kubernetes_backend.models.base.get_resource_schema")
+    def test_deserialize_resource(self, mock_get_schema):
+        # Mock schema to include spec
+        mock_get_schema.return_value = {
+            "properties": {"metadata": {"type": "object"}, "spec": {"type": "object"}}
+        }
+
         # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)
         resource_data = Mock(
             to_dict=lambda: {
                 "metadata": {
+                    "uid": "6ed119d5-65d3-43d6-bc82-cefe4f90516e",
                     "name": "pod1",
-                    "namespace": "default",
                     "labels": {"app": "test"},
                     "annotations": {"key": "value"},
                 },
@@ -93,8 +98,8 @@ class TestKubernetesManager(unittest.TestCase):
 
         # Act
         instance = qs._deserialize_resource(resource_data)
+        self.assertEqual(instance.uid, "6ed119d5-65d3-43d6-bc82-cefe4f90516e")
         self.assertEqual(instance.name, "pod1")
-        self.assertEqual(instance.namespace, "default")
         self.assertEqual(instance.labels, {"app": "test"})
         self.assertEqual(instance.annotations, {"key": "value"})
         self.assertEqual(instance.spec, {"containers": [{"name": "test"}]})

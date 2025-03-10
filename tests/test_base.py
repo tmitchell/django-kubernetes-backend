@@ -35,7 +35,7 @@ class TestKubernetesModelBase(unittest.TestCase):
                 class Meta:
                     app_label = "kubernetes_backend"
 
-    def test_missing_resource_type_raises_error(self):
+    def test_missing_kind_raises_error(self):
         # Arrange & Act & Assert
         with self.assertRaises(ValueError):
 
@@ -45,7 +45,7 @@ class TestKubernetesModelBase(unittest.TestCase):
 
                 class KubernetesMeta:
                     api_version = "v1"
-                    kind = "Pod"
+                    group = "core"
 
     def test_valid_kubernetes_meta(self):
         # Arrange
@@ -54,33 +54,16 @@ class TestKubernetesModelBase(unittest.TestCase):
                 app_label = "kubernetes_backend"
 
             class KubernetesMeta:
-                resource_type = "core"
-                api_version = "v1"
+                group = "core"
+                version = "v1"
                 kind = "Pod"
-                namespace = "default"
                 cluster_scoped = False
 
         # Assert
-        self.assertEqual(TestModel._meta.kubernetes_resource_type, "core")
-        self.assertEqual(TestModel._meta.kubernetes_api_version, "v1")
+        self.assertEqual(TestModel._meta.kubernetes_group, "core")
+        self.assertEqual(TestModel._meta.kubernetes_version, "v1")
         self.assertEqual(TestModel._meta.kubernetes_kind, "Pod")
-        self.assertEqual(TestModel._meta.kubernetes_namespace, "default")
         self.assertFalse(TestModel._meta.cluster_scoped)
-
-    def test_cluster_scoped_with_namespace_raises_error(self):
-        # Arrange & Act & Assert
-        with self.assertRaises(ValueError):
-
-            class ClusterScopedModel(models.Model, metaclass=KubernetesModelBase):
-                class Meta:
-                    app_label = "kubernetes_backend"
-
-                class KubernetesMeta:
-                    resource_type = "core"
-                    api_version = "v1"
-                    kind = "Namespace"
-                    namespace = "custom"
-                    cluster_scoped = True
 
     @patch("kubernetes_backend.models.base.get_openapi_schema")
     def test_field_generation(self, mock_get_openapi_schema):
@@ -103,8 +86,8 @@ class TestKubernetesModelBase(unittest.TestCase):
                 app_label = "kubernetes_backend"
 
             class KubernetesMeta:
-                resource_type = "core"
-                api_version = "v1"
+                group = "core"
+                version = "v1"
                 kind = "Test"
 
         spec_field = next(
