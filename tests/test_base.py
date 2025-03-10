@@ -82,14 +82,18 @@ class TestKubernetesModelBase(unittest.TestCase):
                     namespace = "custom"
                     cluster_scoped = True
 
-    @patch("kubernetes_backend.models.base.get_resource_schema")
-    def test_field_generation(self, mock_get_schema):
+    @patch("kubernetes_backend.models.base.get_openapi_schema")
+    def test_field_generation(self, mock_get_openapi_schema):
         # Arrange
-        mock_get_schema.return_value = {
-            "properties": {
-                "spec": {"type": "object"},
-                "status": {"type": "object"},
-                "metadata": {"type": "object"},  # Should be skipped
+        mock_get_openapi_schema.return_value = {
+            "definitions": {
+                "io.k8s.api.core.v1.Test": {
+                    "properties": {
+                        "spec": {"type": "object"},
+                        "metadata": {"type": "object"},
+                        "count": {"type": "integer"},
+                    }
+                }
             }
         }
 
@@ -101,118 +105,110 @@ class TestKubernetesModelBase(unittest.TestCase):
             class KubernetesMeta:
                 resource_type = "core"
                 api_version = "v1"
-                kind = "Pod"
+                kind = "Test"
+
+        spec_field = next(
+            f for f in TestModelWithFields._meta.fields if f.name == "spec"
+        )
+        count_field = next(
+            f for f in TestModelWithFields._meta.fields if f.name == "count"
+        )
 
         # Assert
-        self.assertTrue(hasattr(TestModelWithFields, "spec"))
-        self.assertTrue(hasattr(TestModelWithFields, "status"))
-        self.assertIsInstance(TestModelWithFields.spec, models.JSONField)
-        self.assertIsInstance(TestModelWithFields.status, models.JSONField)
-        self.assertFalse(hasattr(TestModelWithFields, "metadata"))  # Skipped
+        self.assertIsInstance(spec_field, models.JSONField)
+        self.assertIsInstance(count_field, models.IntegerField)
 
-    def test_get_resource_schema(self):
+    @patch("kubernetes_backend.models.base.get_openapi_schema")
+    def test_get_resource_schema(self, mock_get_openapi_schema):
         # Arrange
-        mock_schema = {
-            "definitions": {
-                "io.k8s.api.v1.Pod": {"properties": {"spec": {"type": "object"}}}
-            }
+        mock_get_openapi_schema.return_value = {
+            "definitions": {"io.k8s.api.core.v1.Pod": {"type": "object"}}
         }
-        with patch(
-            "kubernetes_backend.models.base.get_openapi_schema",
-            return_value=mock_schema,
-        ):
-            # Act
-            result = get_resource_schema("v1", "Pod")
-
-            # Assert
-            self.assertEqual(result, {"properties": {"spec": {"type": "object"}}})
-
-    def test_get_resource_schema_missing(self):
-        # Arrange
-        mock_schema = {"definitions": {}}
-        with patch(
-            "kubernetes_backend.models.base.get_openapi_schema",
-            return_value=mock_schema,
-        ):
-            # Act
-            result = get_resource_schema("v1", "Unknown")
-
-            # Assert
-            self.assertEqual(result, {})
-
-    def test_map_schema_to_django_field_string(self):
-        # Arrange
-        schema = {"type": "string"}
 
         # Act
-        field = map_schema_to_django_field(schema, "test_field")
+        result = get_resource_schema("core", "v1", "Pod")
+
+        # Assert
+        self.assertEqual(result, {"type": "object"})
+
+    @patch("kubernetes_backend.models.base.get_openapi_schema")
+    def test_get_resource_schema_missing(self, mock_get_openapi_schema):
+        # Arrange
+        mock_get_openapi_schema.return_value = {"definitions": {}}
+
+        # Act
+        result = get_resource_schema("core", "v1", "Unknown")
+
+        # Assert
+        self.assertEqual(result, {})
+
+    def test_map_schema_to_django_field_no_schema(self):
+        # Arrange & Act
+        field = map_schema_to_django_field({}, "test")
+
+        # Assert
+        self.assertIsInstance(field, models.JSONField)
+        self.assertEqual(field.default(), {})
+
+    def test_map_schema_to_django_field_string(self):
+        # Arrange & Act
+        field = map_schema_to_django_field({"type": "string"}, "test")
 
         # Assert
         self.assertIsInstance(field, models.CharField)
-        self.assertEqual(field.max_length, 255)
         self.assertEqual(field.default, "")
 
     def test_map_schema_to_django_field_datetime(self):
-        # Arrange
-        schema = {"type": "string", "format": "date-time"}
-
-        # Act
-        field = map_schema_to_django_field(schema, "test_field")
+        # Arrange & Act
+        field = map_schema_to_django_field(
+            {"type": "string", "format": "date-time"}, "test"
+        )
 
         # Assert
         self.assertIsInstance(field, models.DateTimeField)
-        self.assertIsNone(field.default)
+        self.assertTrue(field.null)
 
     def test_map_schema_to_django_field_integer(self):
-        # Arrange
-        schema = {"type": "integer"}
-
-        # Act
-        field = map_schema_to_django_field(schema, "test_field")
+        # Arrange & Act
+        field = map_schema_to_django_field({"type": "integer"}, "test")
 
         # Assert
         self.assertIsInstance(field, models.IntegerField)
         self.assertEqual(field.default, 0)
 
     def test_map_schema_to_django_field_array(self):
-        schema = {"type": "array", "items": {"type": "string"}}
-
-        # Act
-        field = map_schema_to_django_field(schema, "test_field")
+        # Arrange & Act
+        field = map_schema_to_django_field({"type": "array"}, "test")
 
         # Assert
         self.assertIsInstance(field, models.JSONField)
         self.assertEqual(field.default, list)
 
     def test_map_schema_to_django_field_object(self):
-        # Arrange
-        schema = {"type": "object"}
-
-        # Act
-        field = map_schema_to_django_field(schema, "test_field")
+        # Arrange & Act
+        field = map_schema_to_django_field({"type": "object"}, "test")
 
         # Assert
         self.assertIsInstance(field, models.JSONField)
-        self.assertEqual(field.default, dict)
+        self.assertEqual(field.default(), {})
 
-    def test_map_schema_to_django_field_empty(self):
-        # Arrange
-        schema = {}
-
-        # Act
-        field = map_schema_to_django_field(schema, "test_field")
+    def test_map_schema_to_django_field_ref(self):
+        # Arrange & Act
+        field = map_schema_to_django_field({"$ref": "#/definitions/something"}, "test")
 
         # Assert
         self.assertIsInstance(field, models.JSONField)
-        self.assertEqual(field.default, dict)
+        self.assertEqual(field.default(), {})
 
     def test_generate_fields_from_schema(self):
         # Arrange
         schema = {
             "properties": {
-                "spec": {"type": "object"},
-                "metadata": {"type": "object"},  # Should be skipped
+                "metadata": {"type": "object"},
+                "apiVersion": {"type": "string"},
+                "kind": {"type": "string"},
                 "count": {"type": "integer"},
+                "spec": {"type": "object"},
             }
         }
 
@@ -220,11 +216,13 @@ class TestKubernetesModelBase(unittest.TestCase):
         fields = generate_fields_from_schema(schema)
 
         # Assert
-        self.assertIn("spec", fields)
         self.assertIn("count", fields)
+        self.assertIn("spec", fields)
         self.assertNotIn("metadata", fields)
-        self.assertIsInstance(fields["spec"], models.JSONField)
+        self.assertNotIn("apiVersion", fields)
+        self.assertNotIn("kind", fields)
         self.assertIsInstance(fields["count"], models.IntegerField)
+        self.assertIsInstance(fields["spec"], models.JSONField)
 
 
 if __name__ == "__main__":

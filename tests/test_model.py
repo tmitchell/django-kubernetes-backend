@@ -60,16 +60,17 @@ class TestKubernetesModel(unittest.TestCase):
 
         cls.NamespaceModel = NamespaceModel
 
-        class BadModel(KubernetesModel):
-            class Meta:
-                app_label = "kubernetes_backend"
+    def test_invalid_resource_type_raises_value_error(self):
+        with self.assertRaises(ValueError):
 
-            class KubernetesMeta:
-                resource_type = "invalid"
-                api_version = "v1"
-                kind = "Thing"
+            class BadModel(KubernetesModel):
+                class Meta:
+                    app_label = "kubernetes_backend"
 
-        cls.BadModel = BadModel
+                class KubernetesMeta:
+                    resource_type = "invalid"
+                    api_version = "v1"
+                    kind = "Thing"
 
     def test_model_is_abstract(self):
         # Assert
@@ -125,12 +126,6 @@ class TestKubernetesModel(unittest.TestCase):
         # Assert
         self.assertEqual(api_client, mock_client.CustomObjectsApi.return_value)
         mock_client.CustomObjectsApi.assert_called_once()
-
-    @patch("kubernetes_backend.models.model.get_kubernetes_client")
-    def test_get_api_client_unsupported_type(self, mock_get_client):
-        # Act & Assert
-        with self.assertRaises(ValueError):  # Check type, not message
-            self.BadModel.get_api_client()
 
     @patch("kubernetes_backend.models.model.KubernetesModel.get_api_client")
     def test_save_cluster_scoped_with_namespace_raises_error(self, mock_get_client):

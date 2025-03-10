@@ -63,20 +63,21 @@ class TestKubernetesManager(unittest.TestCase):
 
         cls.ManagerCustomModel = ManagerCustomModel
 
-        class InvalidModel(KubernetesModel):
-            class Meta:
-                app_label = "kubernetes_backend"
-
-            class KubernetesMeta:
-                resource_type = "invalid"
-                api_version = "v1"
-                kind = "Thing"
-
-        cls.InvalidModel = InvalidModel
-
     def setUp(self):
         self.qs = KubernetesQuerySet(self.CorePodModel)
         self.qs._result_cache = None
+
+    def test_invalid_resource_type_raises_value_error(self):
+        with self.assertRaises(ValueError):
+
+            class InvalidModel(KubernetesModel):
+                class Meta:
+                    app_label = "kubernetes_backend"
+
+                class KubernetesMeta:
+                    resource_type = "invalid"
+                    api_version = "v1"
+                    kind = "Thing"
 
     def test_deserialize_resource(self):
         qs = KubernetesQuerySet(self.CorePodModel)

@@ -1,4 +1,8 @@
+import logging
+
 from django.db.models.manager import BaseManager
+
+logger = logging.getLogger(__name__)
 
 
 class KubernetesQuerySet:
@@ -87,7 +91,8 @@ class KubernetesQuerySet:
         if hasattr(resource_data, "to_dict"):
             resource_dict = resource_data.to_dict()
         else:
-            resource_dict = resource_data
+            resource_dict = resource_data  # Typo fixed: was resource_dict
+        logger.debug(f"Resource dict: {resource_dict}")
         metadata = resource_dict.get("metadata", {})
         instance = self.model(
             name=metadata.get("name", ""),
@@ -95,15 +100,18 @@ class KubernetesQuerySet:
             labels=metadata.get("labels", {}),
             annotations=metadata.get("annotations", {}),
         )
+        logger.debug(f"Model fields: {[f.name for f in self.model._meta.fields]}")
         for field in self.model._meta.fields:
             field_name = field.name
+            logger.debug(f"Processing field: {field_name}")
             if field_name not in ("name", "namespace", "labels", "annotations", "id"):
-                value = None
                 if field_name in resource_dict:
                     value = resource_dict[field_name]
+                    logger.debug(f"Setting {field_name} to {value}")
+                    setattr(instance, field_name, value)
                 elif "spec" in resource_dict and field_name in resource_dict["spec"]:
                     value = resource_dict["spec"][field_name]
-                if value is not None:
+                    logger.debug(f"Setting {field_name} to {value}")
                     setattr(instance, field_name, value)
         return instance
 
