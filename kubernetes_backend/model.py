@@ -2,9 +2,9 @@ import logging
 
 from django.db import models
 
-from ..client import get_kubernetes_client
-from ..manager import KubernetesManager
-from .base import KubernetesModelBase
+from .client import get_kubernetes_client
+from .manager import KubernetesManager
+from .models.base import KubernetesModelBase
 
 logger = logging.getLogger(__name__)
 

@@ -1,3 +1,3 @@
-from .model import KubernetesModel
+from ..model import KubernetesModel
 
 __all__ = [KubernetesModel]

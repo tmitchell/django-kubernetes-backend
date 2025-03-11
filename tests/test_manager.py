@@ -9,7 +9,7 @@ from kubernetes import client
 
 import tests.setup  # noqa: F401; Imported for Django setup side-effect
 from kubernetes_backend.manager import KubernetesManager, KubernetesQuerySet
-from kubernetes_backend.models.model import KubernetesModel
+from kubernetes_backend.model import KubernetesModel
 
 logging.getLogger("kubernetes_backend").setLevel(logging.ERROR)
 

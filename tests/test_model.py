@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 from django.db import models
 
 import tests.setup  # noqa: F401; Imported for Django setup side-effect
-from kubernetes_backend.models.model import KubernetesModel
+from kubernetes_backend.model import KubernetesModel
 
 logging.getLogger("kubernetes_backend").setLevel(logging.ERROR)
 
@@ -104,7 +104,7 @@ class TestKubernetesModel(unittest.TestCase):
         # Check manager via concrete subclass, abstract models may not bind it directly
         self.assertTrue(hasattr(self.CoreModel, "objects"))
 
-    @patch("kubernetes_backend.models.model.get_kubernetes_client")
+    @patch("kubernetes_backend.model.get_kubernetes_client")
     def test_get_api_client_core(self, mock_get_client):
         # Arrange
         mock_client = Mock()
@@ -117,7 +117,7 @@ class TestKubernetesModel(unittest.TestCase):
         self.assertEqual(api_client, mock_client.CoreV1Api.return_value)
         mock_client.CoreV1Api.assert_called_once()
 
-    @patch("kubernetes_backend.models.model.get_kubernetes_client")
+    @patch("kubernetes_backend.model.get_kubernetes_client")
     def test_get_api_client_rbac(self, mock_get_client):
         # Arrange
         mock_client = Mock()
@@ -130,7 +130,7 @@ class TestKubernetesModel(unittest.TestCase):
         self.assertEqual(api_client, mock_client.RbacAuthorizationV1Api.return_value)
         mock_client.RbacAuthorizationV1Api.assert_called_once()
 
-    @patch("kubernetes_backend.models.model.get_kubernetes_client")
+    @patch("kubernetes_backend.model.get_kubernetes_client")
     def test_get_api_client_custom(self, mock_get_client):
         # Arrange
         mock_client = Mock(spec=["CustomObjectsApi"])
@@ -143,7 +143,7 @@ class TestKubernetesModel(unittest.TestCase):
         mock_client.CustomObjectsApi.assert_called_once()
         self.assertEqual(api_client, mock_client.CustomObjectsApi.return_value)
 
-    @patch("kubernetes_backend.models.model.KubernetesModel.get_api_client")
+    @patch("kubernetes_backend.model.KubernetesModel.get_api_client")
     def test_save_cluster_scoped_with_namespace_raises_error(self, mock_get_client):
         # Arrange
         instance = self.NamespaceModel(name="test", namespace="custom")
@@ -152,7 +152,7 @@ class TestKubernetesModel(unittest.TestCase):
         with self.assertRaises(ValueError):
             instance.save()
 
-    @patch("kubernetes_backend.models.model.KubernetesModel.get_api_client")
+    @patch("kubernetes_backend.model.KubernetesModel.get_api_client")
     def test_save_sets_default_namespace(self, mock_get_client):
         # Arrange
         instance = self.CoreModel(name="test-pod")
@@ -168,7 +168,7 @@ class TestKubernetesModel(unittest.TestCase):
             namespace="default", body=instance._to_kubernetes_resource()
         )
 
-    @patch("kubernetes_backend.models.model.KubernetesModel.get_api_client")
+    @patch("kubernetes_backend.model.KubernetesModel.get_api_client")
     def test_save_core_namespaced(self, mock_get_client):
         # Arrange
         instance = self.CoreModel(name="test-pod", namespace="default")
@@ -183,7 +183,7 @@ class TestKubernetesModel(unittest.TestCase):
             namespace="default", body=instance._to_kubernetes_resource()
         )
 
-    @patch("kubernetes_backend.models.model.KubernetesModel.get_api_client")
+    @patch("kubernetes_backend.model.KubernetesModel.get_api_client")
     def test_save_core_cluster_scoped(self, mock_get_client):
         # Arrange
         instance = self.NamespaceModel(name="test-namespace")
@@ -198,7 +198,7 @@ class TestKubernetesModel(unittest.TestCase):
             body=instance._to_kubernetes_resource()
         )
 
-    @patch("kubernetes_backend.models.model.KubernetesModel.get_api_client")
+    @patch("kubernetes_backend.model.KubernetesModel.get_api_client")
     def test_save_custom_namespaced(self, mock_get_client):
         # Arrange
         instance = self.CustomModel(name="test-custom", namespace="default")
