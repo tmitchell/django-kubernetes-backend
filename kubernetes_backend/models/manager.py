@@ -1,5 +1,6 @@
 import logging
 
+from django.db.models import Q
 from django.db.models.manager import BaseManager
 from kubernetes import client
 
@@ -107,6 +108,14 @@ class KubernetesQuerySet:
             qs._result_cache = self._result_cache.copy()
         return qs
 
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return False
+        return self.uid == other.uid
+
+    def __hash__(self):
+        return hash(self.uid)
+
     def __iter__(self):
         """
         Allow iteration over the queryset (e.g. for pod in Pod.objects.all()).
@@ -144,12 +153,103 @@ class KubernetesQuerySet:
             self._fetch_all()
         return len(self._result_cache)
 
-    def filter(self, **kwargs):
+    def filter(self, *args, **kwargs):
+        qs = self._clone()
+        if qs._result_cache is None:
+            qs._fetch_all()
+        filtered_results = qs._result_cache
+        # logger.debug(f"Initial items: {[item.name for item in filtered_results]}")
+
+        if args:
+            for q in args:
+                if isinstance(q, Q):
+                    filtered_results = self._apply_q_filter(filtered_results, q)
+                    # logger.debug(f"After applying Q filter: {[item.name for item in filtered_results]}")  # noqa: E501,W505
+                else:
+                    logger.warning(f"Unsupported filter argument: {q}")
+
+        for key, value in kwargs.items():
+            if key.endswith("__exact"):
+                key = key[:-7]
+            filtered_results = [
+                item for item in filtered_results if self._match_field(item, key, value)
+            ]
+
+        # logger.debug(f"Filtered results: {[item.name for item in filtered_results]}")
+        qs._result_cache = filtered_results
+        # logger.debug(f"Set _result_cache: {[item.name for item in qs._result_cache]}")
+        return qs
+
+    def _apply_q_filter(self, items, q):
+        logger.debug(f"Applying Q filter: {q}, negated={q.negated}")
+        if q.negated:
+            # logger.debug(f"Processing negated Q with children: {q.children}")
+            inner_q = Q(*q.children, _connector=q.connector)
+            matches = self._apply_q_filter(items, inner_q)
+            # logger.debug(f"Matches for negated Q: {[item.name for item in matches]}")
+            match_uids = {item.uid for item in matches}
+            # logger.debug(f"Match UIDs: {match_uids}")
+            result = [item for item in items if item.uid not in match_uids]
+            # logger.debug(f"Negated result: {[item.name for item in result]}")
+            return result
+        elif q.connector == Q.AND:
+            result = items
+            for child in q.children:
+                if isinstance(child, Q):
+                    result = self._apply_q_filter(result, child)
+                else:
+                    key, value = child
+                    result = [
+                        item for item in result if self._match_field(item, key, value)
+                    ]
+            # logger.debug(f"AND result: {[item.name for item in result]}")
+            return result
+        elif q.connector == Q.OR:
+            result = set()
+            for child in q.children:
+                if isinstance(child, Q):
+                    matches = self._apply_q_filter(items, child)
+                else:
+                    key, value = child
+                    matches = [
+                        item for item in items if self._match_field(item, key, value)
+                    ]
+                result.update(matches)
+            # logger.debug(f"OR result: {[item.name for item in result]}")
+            return list(result)
+        else:
+            key, value = q.children[0]
+            result = [item for item in items if self._match_field(item, key, value)]
+            # logger.debug(f"Simple Q result: {[item.name for item in result]}")
+            return result
+
+    def _match_field(self, item, field_name, value):
         """
-        Implement filtering logic (e.g. using Kubernetes field selectors or labels).
+        Check if an item matches a field value.
+        Supports exact matches and nested fields (e.g., labels__key).
         """
-        # TODO: Implement filtering by fetching and filtering results
-        return self._clone()
+        if field_name.endswith("__exact"):  # Handle explicit exact matches
+            field_name = field_name[:-7]
+
+        if "__" in field_name:  # Handle nested fields (e.g., labels__app)
+            field_parts = field_name.split("__")
+            current = item
+            for part in field_parts:
+                if hasattr(current, part):
+                    current = getattr(current, part)
+                elif isinstance(current, dict):
+                    current = current.get(part)
+                else:
+                    return False
+            return current == value
+        else:
+            # Handle simple fields (e.g., name, namespace)
+            actual_value = getattr(item, field_name, None)
+            if isinstance(actual_value, dict) and isinstance(value, dict):
+                return (
+                    value.items() <= actual_value.items()
+                )  # Subset match for dicts (e.g., labels)
+            return actual_value == value
 
 
 class KubernetesManager(BaseManager.from_queryset(KubernetesQuerySet)):

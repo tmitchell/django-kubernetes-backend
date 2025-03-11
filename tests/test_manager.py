@@ -1,8 +1,9 @@
 import logging
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from django.db import models
+from kubernetes import client
 
 import tests.setup  # noqa: F401; Imported for Django setup side-effect
 from kubernetes_backend.models.manager import KubernetesManager, KubernetesQuerySet
@@ -226,6 +227,137 @@ class TestKubernetesManager(unittest.TestCase):
 
         # Assert
         self.assertIsInstance(qs, KubernetesQuerySet)
+
+
+class TestFilter(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+
+        class Pod(KubernetesModel):
+            class Meta:
+                app_label = "kubernetes_backend"
+
+            class KubernetesMeta:
+                group = "core"
+                version = "v1"
+                kind = "Pod"
+                require_schema = False
+
+            spec = models.JSONField(default=dict, blank=True, null=True)
+
+        cls.Pod = Pod
+
+    def setUp(self):
+        # Mock the Kubernetes API client to avoid real API calls
+        self.mock_api = Mock(spec=client.CoreV1Api)
+
+        # Define the structure of the mock Kubernetes API response
+        pod_items = [
+            {
+                "metadata": {
+                    "name": "pod1",
+                    "namespace": "default",
+                    "uid": "uid1",
+                    "labels": {"app": "myapp", "env": "prod"},
+                    "annotations": {"created_by": "admin"},
+                }
+            },
+            {
+                "metadata": {
+                    "name": "pod2",
+                    "namespace": "kube-system",
+                    "uid": "uid2",
+                    "labels": {"app": "system", "env": "prod"},
+                    "annotations": {"created_by": "system"},
+                }
+            },
+            {
+                "metadata": {
+                    "name": "pod3",
+                    "namespace": "default",
+                    "uid": "uid3",
+                    "labels": {"app": "myapp", "env": "dev"},
+                    "annotations": {"created_by": "admin"},
+                }
+            },
+        ]
+
+        # Create a mock response object that mimics the Kubernetes API response
+        mock_response = MagicMock()
+        mock_response.items = pod_items  # Set items directly as a list of dicts
+
+        # Configure the mock API to return the mock response
+        self.mock_api.list_pod_for_all_namespaces.return_value = mock_response
+
+        # Patch the get_api_client method to return our mock API
+        self.patcher = patch.object(
+            self.Pod, "get_api_client", return_value=self.mock_api
+        )
+        self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
+
+    def test_filter_by_name(self):
+        """Test filtering by exact name."""
+        queryset = self.Pod.objects.filter(name="pod1")
+        self.assertEqual(len(queryset), 1)
+        self.assertEqual(queryset[0].name, "pod1")
+
+    def test_filter_by_namespace(self):
+        """Test filtering by namespace."""
+        queryset = self.Pod.objects.filter(namespace="kube-system")
+        self.assertEqual(len(queryset), 1)
+        self.assertEqual(queryset[0].namespace, "kube-system")
+
+    def test_filter_by_labels(self):
+        """Test filtering by exact labels (subset match)."""
+        queryset = self.Pod.objects.filter(labels={"app": "myapp"})
+        self.assertEqual(len(queryset), 2)
+        names = {pod.name for pod in queryset}
+        self.assertEqual(names, {"pod1", "pod3"})
+
+    def test_filter_by_nested_labels(self):
+        """Test filtering by nested label field."""
+        queryset = self.Pod.objects.filter(labels__app="myapp")
+        self.assertEqual(len(queryset), 2)
+        names = {pod.name for pod in queryset}
+        self.assertEqual(names, {"pod1", "pod3"})
+
+    def test_filter_with_q_objects_or(self):
+        """Test filtering with Q objects using OR."""
+        from django.db.models import Q
+
+        queryset = self.Pod.objects.filter(Q(name="pod1") | Q(namespace="kube-system"))
+        self.assertEqual(len(queryset), 2)
+        names = {pod.name for pod in queryset}
+        self.assertEqual(names, {"pod1", "pod2"})
+
+    def test_filter_with_q_objects_and(self):
+        """Test filtering with Q objects using AND."""
+        from django.db.models import Q
+
+        queryset = self.Pod.objects.filter(
+            Q(namespace="default") & Q(labels__app="myapp")
+        )
+        self.assertEqual(len(queryset), 2)
+        names = {pod.name for pod in queryset}
+        self.assertEqual(names, {"pod1", "pod3"})
+
+    def test_filter_with_q_objects_not(self):
+        """Test filtering with negated Q objects."""
+        from django.db.models import Q
+
+        queryset = self.Pod.objects.filter(~Q(namespace="kube-system"))
+        self.assertEqual(len(queryset), 2)
+        names = {pod.name for pod in queryset}
+        self.assertEqual(names, {"pod1", "pod3"})
+
+    def test_filter_empty(self):
+        """Test filtering with no matches."""
+        queryset = self.Pod.objects.filter(name="nonexistent")
+        self.assertEqual(len(queryset), 0)
 
 
 if __name__ == "__main__":
