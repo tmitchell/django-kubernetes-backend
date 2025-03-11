@@ -1,5 +1,7 @@
 import logging
+import uuid
 
+from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
 from django.db.models import Q
 from django.db.models.manager import BaseManager
 from kubernetes import client
@@ -263,6 +265,11 @@ class KubernetesQuerySet:
         field_path = field_name if lookup == "exact" else "__".join(field_parts[:-1])
 
         actual_value = self._get_field_value(item, field_path)
+        # Type coercion for UUIDs
+        if isinstance(value, uuid.UUID):
+            value = str(value)
+        if isinstance(actual_value, uuid.UUID):
+            actual_value = str(actual_value)
 
         if lookup == "exact":
             if isinstance(actual_value, dict) and isinstance(value, dict):
@@ -343,6 +350,29 @@ class KubernetesQuerySet:
         qs = self.clone()
         qs._result_cache = sorted_items
         return qs
+
+    def get(self, *args, **kwargs):
+        """Retrieve a single object matching the given filters.
+
+        Filters the queryset with args/kwargs and returns exactly one object.
+        Raises ObjectDoesNotExist if no matches, MultipleObjectsReturned if more
+        than one match. Uses in-memory filtering on cached results.
+        """
+        # Filter the queryset
+        qs = self.filter(*args, **kwargs)
+        count = len(qs)
+
+        # Enforce single-result rule
+        if count == 0:
+            raise ObjectDoesNotExist(
+                f"{self.model.__name__} matching query does not exist."
+            )
+        if count > 1:
+            raise MultipleObjectsReturned(
+                f"get() returned more than one {self.model.__name__} -- "
+                f"it returned {count}!"
+            )
+        return qs._result_cache[0]
 
 
 class KubernetesManager(BaseManager.from_queryset(KubernetesQuerySet)):

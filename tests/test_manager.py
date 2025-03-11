@@ -3,6 +3,7 @@ import unittest
 import uuid
 from unittest.mock import MagicMock, Mock, patch
 
+from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
 from django.db import models
 from kubernetes import client
 
@@ -409,6 +410,26 @@ class TestQuerySet(unittest.TestCase):
         qs = self.Pod.objects.filter(namespace__icontains="default").order_by("-name")
         # pod3, pod1 (default only)
         self.assertEqual([pod.name for pod in qs], ["pod3", "pod1"])
+
+    def test_get(self):
+        """Test get() retrieves a single object or raises appropriate exceptions."""
+        # Single match by name
+        pod = self.Pod.objects.get(name="pod2")
+        self.assertEqual(pod.name, "pod2")
+        self.assertEqual(pod.namespace, "kube-system")
+
+        # Single match by uid
+        pod = self.Pod.objects.get(uid="22222222-2222-2222-2222-222222222222")
+        self.assertEqual(pod.uid, uuid.UUID("22222222-2222-2222-2222-222222222222"))
+        self.assertEqual(pod.name, "pod2")
+
+        # No match
+        with self.assertRaises(ObjectDoesNotExist):
+            self.Pod.objects.get(name="nonexistent")
+
+        # Multiple matches
+        with self.assertRaises(MultipleObjectsReturned):
+            self.Pod.objects.get(namespace="default")  # pod1 and pod3 match
 
 
 if __name__ == "__main__":
