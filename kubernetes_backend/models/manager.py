@@ -305,6 +305,11 @@ class KubernetesQuerySet:
                 return None
         return current
 
+    def order_by(self, *field_names):
+        print(f"Order by called with: {field_names}")
+        # For now, return self (no sorting); later, implement if needed
+        return self
+
 
 class KubernetesManager(BaseManager.from_queryset(KubernetesQuerySet)):
     pass
