@@ -305,9 +305,22 @@ class TestFilter(unittest.TestCase):
         self.assertEqual(len(queryset), 1)
         self.assertEqual(queryset[0].name, "pod1")
 
+    def test_filter_by_name_starts_with(self):
+        """Test filtering by name with startswith."""
+        queryset = self.Pod.objects.filter(name__startswith="pod")
+        self.assertEqual(len(queryset), 3)
+        names = {pod.name for pod in queryset}
+        self.assertEqual(names, {"pod1", "pod2", "pod3"})
+
     def test_filter_by_namespace(self):
         """Test filtering by namespace."""
         queryset = self.Pod.objects.filter(namespace="kube-system")
+        self.assertEqual(len(queryset), 1)
+        self.assertEqual(queryset[0].namespace, "kube-system")
+
+    def test_filter_by_namespace_icontains(self):
+        """Test filtering by namespace."""
+        queryset = self.Pod.objects.filter(namespace__icontains="KUBE")
         self.assertEqual(len(queryset), 1)
         self.assertEqual(queryset[0].namespace, "kube-system")
 

@@ -169,8 +169,6 @@ class KubernetesQuerySet:
                     logger.warning(f"Unsupported filter argument: {q}")
 
         for key, value in kwargs.items():
-            if key.endswith("__exact"):
-                key = key[:-7]
             filtered_results = [
                 item for item in filtered_results if self._match_field(item, key, value)
             ]
@@ -226,30 +224,59 @@ class KubernetesQuerySet:
     def _match_field(self, item, field_name, value):
         """
         Check if an item matches a field value.
-        Supports exact matches and nested fields (e.g., labels__key).
+        Supports most lookup types and nested fields (e.g., labels__key).
         """
-        if field_name.endswith("__exact"):  # Handle explicit exact matches
-            field_name = field_name[:-7]
+        field_parts = field_name.split("__")
+        valid_lookups = {"exact", "icontains", "startswith", "gt", "lt"}
+        lookup = (
+            field_parts[-1]
+            if len(field_parts) > 1 and field_parts[-1] in valid_lookups
+            else "exact"
+        )
+        field_path = field_name if lookup == "exact" else "__".join(field_parts[:-1])
 
-        if "__" in field_name:  # Handle nested fields (e.g., labels__app)
-            field_parts = field_name.split("__")
-            current = item
-            for part in field_parts:
-                if hasattr(current, part):
-                    current = getattr(current, part)
-                elif isinstance(current, dict):
-                    current = current.get(part)
-                else:
-                    return False
-            return current == value
-        else:
-            # Handle simple fields (e.g., name, namespace)
-            actual_value = getattr(item, field_name, None)
+        actual_value = self._get_field_value(item, field_path)
+
+        if lookup == "exact":
             if isinstance(actual_value, dict) and isinstance(value, dict):
-                return (
-                    value.items() <= actual_value.items()
-                )  # Subset match for dicts (e.g., labels)
+                return value.items() <= actual_value.items()
             return actual_value == value
+        elif lookup == "icontains":
+            if actual_value is None:
+                return False
+            if isinstance(actual_value, dict):
+                return any(
+                    str(v).lower().find(str(value).lower()) != -1
+                    for v in actual_value.values()
+                )
+            return str(actual_value).lower().find(str(value).lower()) != -1
+        elif lookup == "startswith":
+            if actual_value is None:
+                return False
+            return str(actual_value).startswith(str(value))
+        elif lookup == "gt":
+            if actual_value is None:
+                return False
+            return actual_value > value
+        elif lookup == "lt":
+            if actual_value is None:
+                return False
+            return actual_value < value
+        else:
+            logger.warning(f"Unsupported lookup: {lookup}")
+            return False
+
+    def _get_field_value(self, item, field_name):
+        field_parts = field_name.split("__")
+        current = item
+        for part in field_parts:
+            if hasattr(current, part):
+                current = getattr(current, part)
+            elif isinstance(current, dict):
+                current = current.get(part)
+            else:
+                return None
+        return current
 
 
 class KubernetesManager(BaseManager.from_queryset(KubernetesQuerySet)):
