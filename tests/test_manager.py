@@ -1,5 +1,6 @@
 import logging
 import unittest
+import uuid
 from unittest.mock import MagicMock, Mock, patch
 
 from django.db import models
@@ -258,7 +259,7 @@ class TestQuerySet(unittest.TestCase):
                 "metadata": {
                     "name": "pod1",
                     "namespace": "default",
-                    "uid": "uid1",
+                    "uid": uuid.UUID("11111111-1111-1111-1111-111111111111"),
                     "labels": {"app": "myapp", "env": "prod"},
                     "annotations": {"created_by": "admin"},
                 }
@@ -267,7 +268,7 @@ class TestQuerySet(unittest.TestCase):
                 "metadata": {
                     "name": "pod2",
                     "namespace": "kube-system",
-                    "uid": "uid2",
+                    "uid": uuid.UUID("22222222-2222-2222-2222-222222222222"),
                     "labels": {"app": "system", "env": "prod"},
                     "annotations": {"created_by": "system"},
                 }
@@ -276,7 +277,7 @@ class TestQuerySet(unittest.TestCase):
                 "metadata": {
                     "name": "pod3",
                     "namespace": "default",
-                    "uid": "uid3",
+                    "uid": uuid.UUID("33333333-3333-3333-3333-333333333333"),
                     "labels": {"app": "myapp", "env": "dev"},
                     "annotations": {"created_by": "admin"},
                 }
@@ -380,6 +381,15 @@ class TestQuerySet(unittest.TestCase):
         """Test filtering with no matches."""
         queryset = self.Pod.objects.filter(name="nonexistent")
         self.assertEqual(len(queryset), 0)
+
+    def test_filter_pk(self):
+        """Test filtering using pk= shorthand"""
+        queryset = self.Pod.objects.filter(
+            pk=uuid.UUID("11111111-1111-1111-1111-111111111111")
+        )
+        self.assertEqual(len(queryset), 1)
+        self.assertEqual(str(queryset[0].pk), "11111111-1111-1111-1111-111111111111")
+        self.assertEqual(queryset[0].name, "pod1")
 
     def test_order_by(self):
         """Test ordering by field names, including descending and nested fields."""
