@@ -1,6 +1,7 @@
 import logging
 from functools import lru_cache
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.db.models.base import ModelBase
 
@@ -106,9 +107,13 @@ def map_schema_to_django_field(schema, field_name):
     elif field_type == "boolean":
         return models.BooleanField(default=False, blank=True, null=True)
     elif field_type == "array":
-        return models.JSONField(default=list, blank=True, null=True)
+        return models.JSONField(
+            default=list, blank=True, null=True, encoder=DjangoJSONEncoder
+        )
     else:  # object, $ref, or unknown
-        return models.JSONField(default=dict, blank=True, null=True)
+        return models.JSONField(
+            default=dict, blank=True, null=True, encoder=DjangoJSONEncoder
+        )
 
 
 def generate_fields_from_schema(schema):
