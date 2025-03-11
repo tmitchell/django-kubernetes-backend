@@ -68,7 +68,7 @@ class TestKubernetesModel(unittest.TestCase):
     def test_invalid_group_raises_value_error(self):
         with self.assertRaises(ValueError):
 
-            class BadModel(KubernetesModel):
+            class BadGroupModel(KubernetesModel):
                 class Meta:
                     app_label = "kubernetes_backend"
 
@@ -80,7 +80,7 @@ class TestKubernetesModel(unittest.TestCase):
     def test_missing_kind_raises_value_error(self):
         with self.assertRaises(ValueError):
 
-            class BadModel(KubernetesModel):
+            class NoKindModel(KubernetesModel):
                 class Meta:
                     app_label = "kubernetes_backend"
 
