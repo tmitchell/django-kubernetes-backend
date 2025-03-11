@@ -8,6 +8,14 @@ logger = logging.getLogger(__name__)
 
 
 class KubernetesQuerySet:
+    """A custom queryset for Kubernetes resources, mimicking Django ORM behavior.
+
+    This class handles filtering, ordering, and iteration over Kubernetes API
+    results, allowing seamless integration with Django Admin and application
+    code. It avoids direct Kubernetes API calls in favor of in-memory operations
+    where possible, with plans to optimize via selectors later.
+    """
+
     def __init__(self, model, using=None, hints=None):
         self.model = model
         self._result_cache = None
@@ -94,19 +102,30 @@ class KubernetesQuerySet:
         """
         Return a new queryset representing all resources.
         """
-        qs = self._clone()
+        qs = self.clone()
         if qs._result_cache is None:
             qs._fetch_all()
         return qs
 
     def _clone(self):
-        """
-        Create a new queryset instance with the same configuration.
+        """Create a new queryset instance with the same state.
+
+        Core implementation for cloning, preserving the cached result set
+        for chaining operations without repeated API calls. Used by Admin’s
+        ChangeList and aliased by clone() for public use.
         """
         qs = KubernetesQuerySet(self.model)
         if self._result_cache is not None:
             qs._result_cache = self._result_cache.copy()
         return qs
+
+    def clone(self):
+        """Public alias for _clone(), matching Django ORM’s clone() API.
+
+        Provides a familiar interface for queryset chaining and Admin
+        compatibility, delegating to _clone() for the actual work.
+        """
+        return self._clone()
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
@@ -146,15 +165,23 @@ class KubernetesQuerySet:
         return len(self._result_cache)
 
     def count(self):
-        """
-        Return the number of records in the queryset
+        """Return the number of items in the queryset.
+
+        Ensures compatibility with Admin pagination by providing a count without
+        ORM dependencies. Fetches results if not cached.
         """
         if self._result_cache is None:
             self._fetch_all()
         return len(self._result_cache)
 
     def filter(self, *args, **kwargs):
-        qs = self._clone()
+        """Filter the queryset based on Q objects or keyword arguments.
+
+        Supports Django-style Q objects (e.g., Q(name__icontains='kube')) and
+        keyword lookups (e.g., namespace='default'). Filtering happens in-memory
+        on cached results, making it testable and extensible outside Admin.
+        """
+        qs = self.clone()
         if qs._result_cache is None:
             qs._fetch_all()
         filtered_results = qs._result_cache
