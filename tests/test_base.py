@@ -102,7 +102,7 @@ class TestKubernetesModelBase(unittest.TestCase):
         self.assertIsInstance(count_field, models.IntegerField)
 
     @patch("kubernetes_backend.models.base.get_openapi_schema")
-    def test_get_resource_schema(self, mock_get_openapi_schema):
+    def test_get_basic_k8s_resource_schema(self, mock_get_openapi_schema):
         # Arrange
         mock_get_openapi_schema.return_value = {
             "definitions": {"io.k8s.api.core.v1.Pod": {"type": "object"}}
@@ -110,6 +110,45 @@ class TestKubernetesModelBase(unittest.TestCase):
 
         # Act
         result = get_resource_schema("core", "v1", "Pod")
+
+        # Assert
+        self.assertEqual(result, {"type": "object"})
+
+    @patch("kubernetes_backend.models.base.get_openapi_schema")
+    def test_get_storage_resource_schema(self, mock_get_openapi_schema):
+        # Arrange
+        mock_get_openapi_schema.return_value = {
+            "definitions": {"io.k8s.api.storage.v1.StorageClass": {"type": "object"}}
+        }
+
+        # Act
+        result = get_resource_schema("storage.k8s.io", "v1", "StorageClass")
+
+        # Assert
+        self.assertEqual(result, {"type": "object"})
+
+    @patch("kubernetes_backend.models.base.get_openapi_schema")
+    def test_get_rbac_resource_schema(self, mock_get_openapi_schema):
+        # Arrange
+        mock_get_openapi_schema.return_value = {
+            "definitions": {"io.k8s.api.rbac.v1.Role": {"type": "object"}}
+        }
+
+        # Act
+        result = get_resource_schema("rbac.authorization.k8s.io", "v1", "Role")
+
+        # Assert
+        self.assertEqual(result, {"type": "object"})
+
+    @patch("kubernetes_backend.models.base.get_openapi_schema")
+    def test_get_custom_resource_schema(self, mock_get_openapi_schema):
+        # Arrange
+        mock_get_openapi_schema.return_value = {
+            "definitions": {"io.cattle.k3s.v1.Addon": {"type": "object"}}
+        }
+
+        # Act
+        result = get_resource_schema("k3s.cattle.io", "v1", "Addon")
 
         # Assert
         self.assertEqual(result, {"type": "object"})

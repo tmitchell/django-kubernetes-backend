@@ -66,12 +66,20 @@ def get_resource_schema(group, version, kind):
     """
     openapi_schema = get_openapi_schema()
 
-    # Map group/version/kind to schema key
-    key = (
-        f"io.k8s.api.{group}.{version}.{kind}"
-        if group == "core" or group.startswith("k8s.io")
-        else f"io.{group}.{version}.{kind}"
-    )
+    # Pre-process built-in Kubernetes resources
+    if "." not in group:
+        # Add full path in for short names (e.g. core, apps) for consistent handling
+        group = f"{group}.k8s.io"
+    if group.endswith(".k8s.io"):
+        # If there are more than two subdomains, use only left-most
+        # (e.g. rbac.authorization.k8s.io -> rbac.k8s.io)
+        group = group.split(".")[0]
+        group = f"{group}.api.k8s.io"
+
+    # Now all the paths should be normalized and we can reverse the name to find it
+    reversed_group = ".".join(group.split(".")[::-1])
+    key = f"{reversed_group}.{version}.{kind}"
+
     schema = openapi_schema.get("definitions", {}).get(key, {})
     if not schema:
         logger.warning(f"No schema found for {key}, using default")
