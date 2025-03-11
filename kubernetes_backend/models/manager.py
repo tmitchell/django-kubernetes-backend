@@ -306,9 +306,43 @@ class KubernetesQuerySet:
         return current
 
     def order_by(self, *field_names):
-        print(f"Order by called with: {field_names}")
-        # For now, return self (no sorting); later, implement if needed
-        return self
+        """Sort the queryset by one or more field names.
+
+        Supports ascending (e.g., 'name') and descending (e.g., '-namespace') order,
+        including nested fields (e.g., 'labels__app'). Sorts in-memory using the
+        cached result set, preserving the original order if no fields are provided.
+        """
+        if not field_names:
+            return self
+
+        # Fetch results if not cached
+        if self._result_cache is None:
+            self._fetch_all()
+
+        # Split field names and directions
+        fields = []
+        reverse = False
+        for field in field_names:
+            if field.startswith("-"):
+                fields.append(field[1:])
+                reverse = True  # Only reverse if any field is descending
+            else:
+                fields.append(field)
+
+        # Sort in-memory with tuple key
+        sorted_items = sorted(
+            self._result_cache,
+            key=lambda item: tuple(
+                self._get_field_value(item, field) or ""  # None to '' for sorting
+                for field in fields
+            ),
+            reverse=reverse,  # Apply descending order here
+        )
+
+        # Clone and set sorted results
+        qs = self.clone()
+        qs._result_cache = sorted_items
+        return qs
 
 
 class KubernetesManager(BaseManager.from_queryset(KubernetesQuerySet)):

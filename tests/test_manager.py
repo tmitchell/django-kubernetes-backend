@@ -229,7 +229,7 @@ class TestKubernetesManager(unittest.TestCase):
         self.assertIsInstance(qs, KubernetesQuerySet)
 
 
-class TestFilter(unittest.TestCase):
+class TestQuerySet(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -312,6 +312,15 @@ class TestFilter(unittest.TestCase):
         names = {pod.name for pod in queryset}
         self.assertEqual(names, {"pod1", "pod2", "pod3"})
 
+    def test_filter_by_name_icontains(self):
+        """Test filtering by name with icontains."""
+        from django.db.models import Q
+
+        queryset = self.Pod.objects.filter(Q(name__icontains="pod"))
+        self.assertEqual(len(queryset), 3)
+        names = {pod.name for pod in queryset}
+        self.assertEqual(names, {"pod1", "pod2", "pod3"})
+
     def test_filter_by_namespace(self):
         """Test filtering by namespace."""
         queryset = self.Pod.objects.filter(namespace="kube-system")
@@ -371,6 +380,25 @@ class TestFilter(unittest.TestCase):
         """Test filtering with no matches."""
         queryset = self.Pod.objects.filter(name="nonexistent")
         self.assertEqual(len(queryset), 0)
+
+    def test_order_by(self):
+        """Test ordering by field names, including descending and nested fields."""
+        qs = self.Pod.objects.order_by("namespace")
+        # default, default, kube-system
+        self.assertEqual([pod.name for pod in qs], ["pod1", "pod3", "pod2"])
+
+        qs = self.Pod.objects.order_by("-namespace")
+        # kube-system, default, default
+        self.assertEqual([pod.name for pod in qs], ["pod2", "pod1", "pod3"])
+
+        qs = self.Pod.objects.order_by("labels__app", "name")
+        # myapp (pod1), myapp (pod3), system (pod2)
+        self.assertEqual([pod.name for pod in qs], ["pod1", "pod3", "pod2"])
+
+        # Test with search filter
+        qs = self.Pod.objects.filter(namespace__icontains="default").order_by("-name")
+        # pod3, pod1 (default only)
+        self.assertEqual([pod.name for pod in qs], ["pod3", "pod1"])
 
 
 if __name__ == "__main__":
