@@ -39,6 +39,9 @@ class KubernetesModelBase(ModelBase):
         new_meta.cluster_scoped = getattr(meta, "cluster_scoped", False)
         new_meta.require_schema = getattr(meta, "require_schema", True)
 
+        # Prevent Django from creating migrations for this
+        new_meta.managed = False
+
         # Fetch and generate fields from schema
         schema = get_resource_schema(
             new_meta.kubernetes_group,
