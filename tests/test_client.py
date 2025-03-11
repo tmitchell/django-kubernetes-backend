@@ -1,5 +1,3 @@
-import logging
-import logging.handlers
 import unittest
 from unittest.mock import Mock, patch
 
@@ -21,20 +19,8 @@ class TestKubernetesClient(unittest.TestCase):
     def setUp(self):
         # Clear the lru_cache for get_openapi_schema between tests
         get_openapi_schema.cache_clear()
-        # Set up a logger with MemoryHandler to capture log output
-        self.logger = logging.getLogger("kubernetes_backend.client")
-        self.log_handler = logging.handlers.MemoryHandler(
-            capacity=100, flushLevel=logging.ERROR
-        )
-
-        self.logger.addHandler(self.log_handler)
-        self.logger.setLevel(logging.DEBUG)
 
     def tearDown(self):
-        # Clean up logger handler after each test
-        self.logger.removeHandler(self.log_handler)
-        self.log_handler.flush()
-        self.log_handler.close()
         # Reset settings to avoid interference between tests
         if hasattr(settings, "KUBERNETES_CONFIG"):
             delattr(settings, "KUBERNETES_CONFIG")
