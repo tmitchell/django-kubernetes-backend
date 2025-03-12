@@ -9,7 +9,7 @@ from kubernetes import client
 
 import tests.setup  # noqa: F401; Imported for Django setup side-effect
 from kubernetes_backend.manager import KubernetesManager, KubernetesQuerySet
-from kubernetes_backend.model import KubernetesModel
+from kubernetes_backend.models import KubernetesModel
 
 logging.getLogger("kubernetes_backend").setLevel(logging.ERROR)
 
@@ -83,7 +83,7 @@ class TestKubernetesManager(unittest.TestCase):
                     version = "v1"
                     kind = "Thing"
 
-    @patch("kubernetes_backend.models.base.get_resource_schema")
+    @patch("kubernetes_backend.models.KubernetesModelMeta.get_resource_schema")
     def test_deserialize_resource(self, mock_get_schema):
         # Mock schema to include spec
         mock_get_schema.return_value = {
