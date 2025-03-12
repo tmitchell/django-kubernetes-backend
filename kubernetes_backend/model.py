@@ -1,21 +1,147 @@
 import logging
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
+from django.db.models.base import ModelBase
 
-from .client import get_kubernetes_client
+from .client import get_kubernetes_client, get_openapi_schema
 from .manager import KubernetesManager
-from .models.base import KubernetesModelBase
 
 logger = logging.getLogger(__name__)
 
 
-class KubernetesModel(models.Model, metaclass=KubernetesModelBase):
+class KubernetesModelMeta(ModelBase):
+    """Metaclass to initialize _meta attributes early."""
+
+    def __new__(cls, name, bases, attrs):
+        # Create the class as usual
+        new_class = super().__new__(cls, name, bases, attrs)
+
+        # Skip processing for the base class itself
+        if name == "KubernetesModel":
+            return new_class
+
+        # Extract KubernetesMeta class configuration
+        meta = attrs.get("KubernetesMeta") or getattr(new_class, "KubernetesMeta", None)
+        if meta is None:
+            raise ValueError(
+                "KubernetesModel subclasses must define a KubernetesMeta class"
+            )
+
+        # Check required attributes on meta class
+        missing_attrs = [attr for attr in ("kind",) if not hasattr(meta, attr)]
+        if missing_attrs:
+            raise ValueError(f"KubernetesMeta must define {', '.join(missing_attrs)}")
+
+        # Custom _k8s_meta namespace to hold configuration from KubernetesMeta
+        _k8s_meta = type("K8sMeta", (), {})()
+        _k8s_meta.group = getattr(meta, "group", "core")
+        _k8s_meta.version = getattr(meta, "version", "v1")
+        _k8s_meta.kind = meta.kind
+        _k8s_meta.plural = getattr(meta, "plural", f"{meta.kind.lower()}s")
+        _k8s_meta.cluster_scoped = getattr(meta, "cluster_scoped", False)
+        _k8s_meta.require_schema = getattr(meta, "require_schema", True)
+
+        # TODO: is there a better spot to put this?
+        # copy all the k8s_meta fields to new_class
+        for attr_name, value in _k8s_meta.__dict__.items():
+            setattr(new_class._meta, f"kubernetes_{attr_name}", value)
+
+        # Fetch and generate fields from schema
+        schema = cls.get_resource_schema(
+            _k8s_meta.group,
+            _k8s_meta.version,
+            _k8s_meta.kind,
+        )
+        logger.debug(f"Schema for {_k8s_meta.kind}: {schema}")
+        if schema:
+            generated_fields = cls.generate_fields_from_schema(schema)
+            logger.debug(f"Generated fields: {generated_fields}")
+            for field_name, field in generated_fields.items():
+                if field_name not in attrs:
+                    new_class.add_to_class(field_name, field)
+        elif _k8s_meta.require_schema:
+            raise ValueError(f"Schema required but not found for {_k8s_meta.kind}")
+        return new_class
+
+    @staticmethod
+    def get_resource_schema(group, version, kind):
+        """
+        Fetch the OpenAPI schema for a specific Kubernetes resource.
+        """
+        openapi_schema = get_openapi_schema()
+
+        # Pre-process built-in Kubernetes resources
+        if "." not in group:
+            # Add full path in for short names (e.g. core, apps) for consistent handling
+            group = f"{group}.k8s.io"
+        if group.endswith(".k8s.io"):
+            # If there are more than two subdomains, use only left-most
+            # (e.g. rbac.authorization.k8s.io -> rbac.k8s.io)
+            group = group.split(".")[0]
+            group = f"{group}.api.k8s.io"
+
+        # Now all the paths should be normalized and we can reverse the name to find it
+        reversed_group = ".".join(group.split(".")[::-1])
+        key = f"{reversed_group}.{version}.{kind}"
+
+        schema = openapi_schema.get("definitions", {}).get(key, {})
+        if not schema:
+            logger.warning(f"No schema found for {key}, using default")
+        return schema
+
+    @staticmethod
+    def generate_fields_from_schema(schema):
+        """
+        Generate Django model fields from a Kubernetes OpenAPI schema.
+        """
+        fields = {}
+        properties = schema.get("properties", {})
+        for field_name, field_schema in properties.items():
+            # Skip metadata fields, as they are already defined in the base model
+            if field_name in ("metadata", "apiVersion", "kind"):
+                continue
+            django_field = KubernetesModelMeta.map_schema_to_django_field(
+                field_schema, field_name
+            )
+            fields[field_name] = django_field
+        return fields
+
+    @staticmethod
+    def map_schema_to_django_field(schema, field_name):
+        """
+        Map a Kubernetes OpenAPI schema field to a Django model field.
+        """
+        field_type = schema.get("type")
+        format_type = schema.get("format")
+        if field_type == "string":
+            if format_type == "date-time":
+                return models.DateTimeField(null=True, blank=True)
+            return models.CharField(max_length=255, default="", blank=True, null=True)
+        elif field_type == "integer":
+            return models.IntegerField(default=0, blank=True, null=True)
+        elif field_type == "number":
+            return models.FloatField(default=0.0, blank=True, null=True)
+        elif field_type == "boolean":
+            return models.BooleanField(default=False, blank=True, null=True)
+        elif field_type == "array":
+            return models.JSONField(
+                default=list, blank=True, null=True, encoder=DjangoJSONEncoder
+            )
+        else:  # object, $ref, or unknown
+            return models.JSONField(
+                default=dict, blank=True, null=True, encoder=DjangoJSONEncoder
+            )
+
+
+class KubernetesModel(models.Model, metaclass=KubernetesModelMeta):
     """
     Base class for Kubernetes-backed Django models.
     """
 
     class Meta:
         abstract = True
+        managed = False
 
     # Common Kubernetes metadata fields
     uid = models.UUIDField(primary_key=True)
@@ -52,11 +178,11 @@ class KubernetesModel(models.Model, metaclass=KubernetesModelBase):
 
     def save(self, *args, **kwargs):
         """Save the model instance to Kubernetes."""
-        if self._meta.cluster_scoped and self.namespace:
+        if self._meta.kubernetes_cluster_scoped and self.namespace:
             raise ValueError("Cluster-scoped resources cannot have a namespace.")
 
         # Determine whether the resource is namespaced, set default if not specified
-        namespaced = not self._meta.cluster_scoped
+        namespaced = not self._meta.kubernetes_cluster_scoped
         if namespaced and not self.namespace:
             self.namespace = "default"
 
@@ -102,7 +228,7 @@ class KubernetesModel(models.Model, metaclass=KubernetesModelBase):
             "labels": self.labels,
             "annotations": self.annotations,
         }
-        if not self._meta.cluster_scoped:
+        if not self._meta.kubernetes_cluster_scoped:
             metadata["namespace"] = self.namespace
 
         resource_data = {
@@ -129,6 +255,6 @@ class KubernetesModel(models.Model, metaclass=KubernetesModelBase):
         return resource_data
 
     def __str__(self):
-        if self._meta.cluster_scoped:
+        if self._meta.kubernetes_cluster_scoped:
             return f"{self.name} (cluster-wide)"
         return f"{self.name} ({self.namespace})"

@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 from django.db import models
 
 import tests.setup  # noqa: F401; Imported for Django setup side-effect
-from kubernetes_backend.model import KubernetesModel
+from kubernetes_backend.model import KubernetesModel, KubernetesModelMeta
 
 logging.getLogger("kubernetes_backend").setLevel(logging.ERROR)
 
@@ -65,6 +65,54 @@ class TestKubernetesModel(unittest.TestCase):
 
         cls.NamespaceModel = NamespaceModel
 
+    # --- Metaclass/Setup Tests ---
+    def test_meta_base_class_skipped(self):
+        result = KubernetesModelMeta.__new__(
+            KubernetesModelMeta, "KubernetesModel", (), {}
+        )
+        self.assertIsInstance(result, type)
+        self.assertEqual(result.__name__, "KubernetesModel")
+
+    def test_meta_missing_kubernetes_meta_raises_error(self):
+        # Arrange & Act & Assert
+        with self.assertRaises(ValueError):
+
+            class MissingMetaModel(models.Model, metaclass=KubernetesModelMeta):
+                class Meta:
+                    app_label = "kubernetes_backend"
+
+    def test_meta_missing_kind_raises_error(self):
+        # Arrange & Act & Assert
+        with self.assertRaises(ValueError):
+
+            class NoResourceTypeModel(models.Model, metaclass=KubernetesModelMeta):
+                class Meta:
+                    app_label = "kubernetes_backend"
+
+                class KubernetesMeta:
+                    api_version = "v1"
+                    group = "core"
+
+    def test_meta_valid_kubernetes_meta(self):
+        # Arrange
+        class ValidModel(models.Model, metaclass=KubernetesModelMeta):
+            class Meta:
+                app_label = "kubernetes_backend"
+
+            class KubernetesMeta:
+                group = "core"
+                version = "v1"
+                kind = "Pod"
+                cluster_scoped = False
+                require_schema = False
+
+        # Assert
+        self.assertEqual(ValidModel._meta.kubernetes_group, "core")
+        self.assertEqual(ValidModel._meta.kubernetes_version, "v1")
+        self.assertEqual(ValidModel._meta.kubernetes_kind, "Pod")
+        self.assertFalse(ValidModel._meta.kubernetes_cluster_scoped)
+
+    # --- Runtime Tests ---
     def test_invalid_group_raises_value_error(self):
         with self.assertRaises(ValueError):
 

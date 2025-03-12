@@ -13,57 +13,6 @@ from kubernetes_backend.models.base import (
 
 
 class TestKubernetesModelBase(unittest.TestCase):
-    def test_base_class_skipped(self):
-        # Arrange
-        class KubernetesModel(metaclass=KubernetesModelBase):
-            pass
-
-        # Act
-        result = KubernetesModelBase.__new__(
-            KubernetesModelBase, "KubernetesModel", (), {}
-        )
-
-        # Assert
-        self.assertIsInstance(result, type)
-        self.assertEqual(result.__name__, "KubernetesModel")
-
-    def test_missing_kubernetes_meta_raises_error(self):
-        # Arrange & Act & Assert
-        with self.assertRaises(ValueError):
-
-            class MissingMetaModel(models.Model, metaclass=KubernetesModelBase):
-                class Meta:
-                    app_label = "kubernetes_backend"
-
-    def test_missing_kind_raises_error(self):
-        # Arrange & Act & Assert
-        with self.assertRaises(ValueError):
-
-            class NoResourceTypeModel(models.Model, metaclass=KubernetesModelBase):
-                class Meta:
-                    app_label = "kubernetes_backend"
-
-                class KubernetesMeta:
-                    api_version = "v1"
-                    group = "core"
-
-    def test_valid_kubernetes_meta(self):
-        # Arrange
-        class TestModel(models.Model, metaclass=KubernetesModelBase):
-            class Meta:
-                app_label = "kubernetes_backend"
-
-            class KubernetesMeta:
-                group = "core"
-                version = "v1"
-                kind = "Pod"
-                cluster_scoped = False
-
-        # Assert
-        self.assertEqual(TestModel._meta.kubernetes_group, "core")
-        self.assertEqual(TestModel._meta.kubernetes_version, "v1")
-        self.assertEqual(TestModel._meta.kubernetes_kind, "Pod")
-        self.assertFalse(TestModel._meta.cluster_scoped)
 
     @patch("kubernetes_backend.models.base.get_openapi_schema")
     def test_field_generation(self, mock_get_openapi_schema):

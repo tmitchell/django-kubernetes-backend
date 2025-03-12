@@ -42,7 +42,7 @@ class KubernetesQuerySet:
                 response = getattr(api, method)()
                 items = response.items
             else:
-                if self.model._meta.cluster_scoped:
+                if self.model._meta.kubernetes_cluster_scoped:
                     response = api.list_cluster_custom_object(group, version, plural)
                     items = response["items"]
                 else:
