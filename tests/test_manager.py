@@ -8,8 +8,8 @@ from django.db import models
 from kubernetes import client
 
 import tests.setup  # noqa: F401; Imported for Django setup side-effect
-from kubernetes_backend.models.manager import KubernetesManager, KubernetesQuerySet
-from kubernetes_backend.models.model import KubernetesModel
+from kubernetes_backend.manager import KubernetesManager, KubernetesQuerySet
+from kubernetes_backend.models import KubernetesModel
 
 logging.getLogger("kubernetes_backend").setLevel(logging.ERROR)
 
@@ -83,7 +83,7 @@ class TestKubernetesManager(unittest.TestCase):
                     version = "v1"
                     kind = "Thing"
 
-    @patch("kubernetes_backend.models.base.get_resource_schema")
+    @patch("kubernetes_backend.models.KubernetesModelMeta.get_resource_schema")
     def test_deserialize_resource(self, mock_get_schema):
         # Mock schema to include spec
         mock_get_schema.return_value = {
@@ -131,7 +131,7 @@ class TestKubernetesManager(unittest.TestCase):
         self.assertEqual(result[1].name, "pod2")
         mock_fetch.assert_not_called()
 
-    @patch("kubernetes_backend.models.manager.KubernetesQuerySet._fetch_all")
+    @patch("kubernetes_backend.manager.KubernetesQuerySet._fetch_all")
     def test_getitem_index(self, mock_fetch_all):
         # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)
@@ -149,7 +149,7 @@ class TestKubernetesManager(unittest.TestCase):
         self.assertEqual(item.name, "pod2")
         mock_fetch_all.assert_not_called()
 
-    @patch("kubernetes_backend.models.manager.KubernetesQuerySet._fetch_all")
+    @patch("kubernetes_backend.manager.KubernetesQuerySet._fetch_all")
     def test_getitem_slice(self, mock_fetch_all):
         # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)
@@ -171,7 +171,7 @@ class TestKubernetesManager(unittest.TestCase):
         self.assertEqual(items[1].name, "pod3")
         mock_fetch_all.assert_not_called()
 
-    @patch("kubernetes_backend.models.manager.KubernetesQuerySet._fetch_all")
+    @patch("kubernetes_backend.manager.KubernetesQuerySet._fetch_all")
     def test_getitem_invalid_type(self, mock_fetch_all):
         # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)
@@ -180,7 +180,7 @@ class TestKubernetesManager(unittest.TestCase):
         with self.assertRaises(TypeError):
             qs["invalid"]
 
-    @patch("kubernetes_backend.models.manager.KubernetesQuerySet._fetch_all")
+    @patch("kubernetes_backend.manager.KubernetesQuerySet._fetch_all")
     def test_len(self, mock_fetch_all):
         # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)
@@ -194,7 +194,7 @@ class TestKubernetesManager(unittest.TestCase):
         self.assertEqual(length, 2)
         mock_fetch_all.assert_not_called()
 
-    @patch("kubernetes_backend.models.manager.KubernetesQuerySet._fetch_all")
+    @patch("kubernetes_backend.manager.KubernetesQuerySet._fetch_all")
     def test_count(self, mock_fetch_all):
         # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)

@@ -1,18 +1,10 @@
 import unittest
 from unittest.mock import Mock, patch
 
-# Configure Django settings before importing anything that uses settings
-from django.conf import settings
-
-if not settings.configured:
-    settings.configure(
-        KUBERNETES_CONFIG={},  # Default value, will be overridden in tests
-        DEBUG=True,
-    )
-
 from kubernetes.client.rest import ApiException
 
 from kubernetes_backend.client import get_kubernetes_client, get_openapi_schema
+from tests.setup import settings
 
 
 class TestKubernetesClient(unittest.TestCase):
