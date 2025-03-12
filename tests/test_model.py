@@ -112,6 +112,201 @@ class TestKubernetesModel(unittest.TestCase):
         self.assertEqual(ValidModel._meta.kubernetes_kind, "Pod")
         self.assertFalse(ValidModel._meta.kubernetes_cluster_scoped)
 
+    @patch("kubernetes_backend.model.get_openapi_schema")
+    def test_meta_field_generation(self, mock_get_openapi_schema):
+        # Arrange
+        mock_get_openapi_schema.return_value = {
+            "definitions": {
+                "io.k8s.api.core.v1.Test": {
+                    "properties": {
+                        "spec": {"type": "object"},
+                        "metadata": {"type": "object"},
+                        "count": {"type": "integer"},
+                    }
+                }
+            }
+        }
+
+        # Act
+        class TestModelWithFields(models.Model, metaclass=KubernetesModelMeta):
+            class Meta:
+                app_label = "kubernetes_backend"
+
+            class KubernetesMeta:
+                group = "core"
+                version = "v1"
+                kind = "Test"
+
+        spec_field = next(
+            f for f in TestModelWithFields._meta.fields if f.name == "spec"
+        )
+        count_field = next(
+            f for f in TestModelWithFields._meta.fields if f.name == "count"
+        )
+
+        # Assert
+        self.assertIsInstance(spec_field, models.JSONField)
+        self.assertIsInstance(count_field, models.IntegerField)
+
+    @patch("kubernetes_backend.model.get_openapi_schema")
+    def test_meta_get_k8s_resource_schema_core(self, mock_get_openapi_schema):
+        # Arrange
+        mock_get_openapi_schema.return_value = {
+            "definitions": {"io.k8s.api.core.v1.Pod": {"type": "object"}}
+        }
+
+        # Act
+        result = KubernetesModelMeta.get_resource_schema("core", "v1", "Pod")
+
+        # Assert
+        self.assertEqual(result, {"type": "object"})
+
+    @patch("kubernetes_backend.model.get_openapi_schema")
+    def test_meta_get_resource_schema_storage(self, mock_get_openapi_schema):
+        # Arrange
+        mock_get_openapi_schema.return_value = {
+            "definitions": {"io.k8s.api.storage.v1.StorageClass": {"type": "object"}}
+        }
+
+        # Act
+        result = KubernetesModelMeta.get_resource_schema(
+            "storage.k8s.io", "v1", "StorageClass"
+        )
+
+        # Assert
+        self.assertEqual(result, {"type": "object"})
+
+    @patch("kubernetes_backend.model.get_openapi_schema")
+    def test_meta_get_resource_schema_rbac(self, mock_get_openapi_schema):
+        # Arrange
+        mock_get_openapi_schema.return_value = {
+            "definitions": {"io.k8s.api.rbac.v1.Role": {"type": "object"}}
+        }
+
+        # Act
+        result = KubernetesModelMeta.get_resource_schema(
+            "rbac.authorization.k8s.io", "v1", "Role"
+        )
+
+        # Assert
+        self.assertEqual(result, {"type": "object"})
+
+    @patch("kubernetes_backend.model.get_openapi_schema")
+    def test_meta_get_resource_schema_custom(self, mock_get_openapi_schema):
+        # Arrange
+        mock_get_openapi_schema.return_value = {
+            "definitions": {"io.cattle.k3s.v1.Addon": {"type": "object"}}
+        }
+
+        # Act
+        result = KubernetesModelMeta.get_resource_schema("k3s.cattle.io", "v1", "Addon")
+
+        # Assert
+        self.assertEqual(result, {"type": "object"})
+
+    @patch("kubernetes_backend.model.get_openapi_schema")
+    def test_meta_get_resource_schema_missing(self, mock_get_openapi_schema):
+        # Arrange
+        mock_get_openapi_schema.return_value = {"definitions": {}}
+
+        # Act
+        result = KubernetesModelMeta.get_resource_schema("core", "v1", "Unknown")
+
+        # Assert
+        self.assertEqual(result, {})
+
+    def test_meta_map_schema_to_django_field_no_schema(self):
+        # Arrange & Act
+        field = KubernetesModelMeta.map_schema_to_django_field({}, "test")
+
+        # Assert
+        self.assertIsInstance(field, models.JSONField)
+        self.assertEqual(field.default(), {})
+
+    def test_map_schema_to_django_field_string(self):
+        # Arrange & Act
+        field = KubernetesModelMeta.map_schema_to_django_field(
+            {"type": "string"}, "test"
+        )
+
+        # Assert
+        self.assertIsInstance(field, models.CharField)
+        self.assertEqual(field.default, "")
+
+    def test_meta_map_schema_to_django_field_datetime(self):
+        # Arrange & Act
+        field = KubernetesModelMeta.map_schema_to_django_field(
+            {"type": "string", "format": "date-time"}, "test"
+        )
+
+        # Assert
+        self.assertIsInstance(field, models.DateTimeField)
+        self.assertTrue(field.null)
+
+    def test_meta_map_schema_to_django_field_integer(self):
+        # Arrange & Act
+        field = KubernetesModelMeta.map_schema_to_django_field(
+            {"type": "integer"}, "test"
+        )
+
+        # Assert
+        self.assertIsInstance(field, models.IntegerField)
+        self.assertEqual(field.default, 0)
+
+    def test_meta_map_schema_to_django_field_array(self):
+        # Arrange & Act
+        field = KubernetesModelMeta.map_schema_to_django_field(
+            {"type": "array"}, "test"
+        )
+
+        # Assert
+        self.assertIsInstance(field, models.JSONField)
+        self.assertEqual(field.default, list)
+
+    def test_meta_map_schema_to_django_field_object(self):
+        # Arrange & Act
+        field = KubernetesModelMeta.map_schema_to_django_field(
+            {"type": "object"}, "test"
+        )
+
+        # Assert
+        self.assertIsInstance(field, models.JSONField)
+        self.assertEqual(field.default(), {})
+
+    def test_meta_map_schema_to_django_field_ref(self):
+        # Arrange & Act
+        field = KubernetesModelMeta.map_schema_to_django_field(
+            {"$ref": "#/definitions/something"}, "test"
+        )
+
+        # Assert
+        self.assertIsInstance(field, models.JSONField)
+        self.assertEqual(field.default(), {})
+
+    def test_meta_generate_fields_from_schema(self):
+        # Arrange
+        schema = {
+            "properties": {
+                "metadata": {"type": "object"},
+                "apiVersion": {"type": "string"},
+                "kind": {"type": "string"},
+                "count": {"type": "integer"},
+                "spec": {"type": "object"},
+            }
+        }
+
+        # Act
+        fields = KubernetesModelMeta.generate_fields_from_schema(schema)
+
+        # Assert
+        self.assertIn("count", fields)
+        self.assertIn("spec", fields)
+        self.assertNotIn("metadata", fields)
+        self.assertNotIn("apiVersion", fields)
+        self.assertNotIn("kind", fields)
+        self.assertIsInstance(fields["count"], models.IntegerField)
+        self.assertIsInstance(fields["spec"], models.JSONField)
+
     # --- Runtime Tests ---
     def test_invalid_group_raises_value_error(self):
         with self.assertRaises(ValueError):
@@ -266,7 +461,7 @@ class TestKubernetesModel(unittest.TestCase):
             body=instance._to_kubernetes_resource(),
         )
 
-    @patch("kubernetes_backend.models.base.KubernetesModelBase.__new__")
+    @patch("kubernetes_backend.model.KubernetesModelMeta.__new__")
     def test_to_kubernetes_resource_namespaced(self, mock_new):
         # Arrange
         mock_new.return_value = self.CoreModel
