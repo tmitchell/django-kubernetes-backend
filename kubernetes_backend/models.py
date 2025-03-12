@@ -10,6 +10,38 @@ from .manager import KubernetesManager
 logger = logging.getLogger(__name__)
 
 
+K8S_DEFAULT_GROUPS = {
+    "",  # core, modern
+    "admission.k8s.io",
+    "admissionregistration.k8s.io",
+    "apiextensions.k8s.io",
+    "apiregistration.k8s.io",
+    "apps",
+    "authentication.k8s.io",
+    "authorization.k8s.io",
+    "autoscaling",
+    "batch",
+    "certificates.k8s.io",
+    "coordination.k8s.io",
+    "core",  # legacy
+    "discovery.k8s.io",
+    "events.k8s.io",
+    "extensions",
+    "flowcontrol.apiserver.k8s.io",
+    "imagepolicy.k8s.io",
+    "internal.apiserver.k8s.io",
+    "metrics.k8s.io",
+    "networking.k8s.io",
+    "node.k8s.io",
+    "policy",
+    "rbac.authorization.k8s.io",
+    "resource.k8s.io",
+    "scheduling.k8s.io",
+    "storage.k8s.io",
+    "storagemigration.k8s.io",
+}
+
+
 class KubernetesModelMeta(ModelBase):
     """Metaclass to initialize _meta attributes early."""
 
@@ -71,19 +103,17 @@ class KubernetesModelMeta(ModelBase):
         """
         openapi_schema = get_openapi_schema()
 
-        # Pre-process built-in Kubernetes resources
-        if "." not in group:
-            # Add full path in for short names (e.g. core, apps) for consistent handling
-            group = f"{group}.k8s.io"
-        if group.endswith(".k8s.io"):
-            # If there are more than two subdomains, use only left-most
-            # (e.g. rbac.authorization.k8s.io -> rbac.k8s.io)
-            group = group.split(".")[0]
-            group = f"{group}.api.k8s.io"
-
-        # Now all the paths should be normalized and we can reverse the name to find it
-        reversed_group = ".".join(group.split(".")[::-1])
-        key = f"{reversed_group}.{version}.{kind}"
+        if not group:
+            key = f"io.k8s.api.core.{version}.{kind}"
+        else:
+            if group in K8S_DEFAULT_GROUPS:
+                normalized_group = group.rstrip(".k8s.io")
+                # if dotted, just grab the left-most (e.g. rbac.authorization -> rbac)
+                prefix = normalized_group.split(".")[0]
+                group = f"{prefix}.api.k8s.io"
+            # All paths should be normalized and we can reverse the name to find it
+            reversed_group = ".".join(group.split(".")[::-1])
+            key = f"{reversed_group}.{version}.{kind}"
 
         schema = openapi_schema.get("definitions", {}).get(key, {})
         if not schema:

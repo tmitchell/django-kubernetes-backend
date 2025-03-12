@@ -100,10 +100,14 @@ class TestKubernetesMetaModel(unittest.TestCase):
             "definitions": {"io.k8s.api.core.v1.Pod": {"type": "object"}}
         }
 
-        # Act
+        # Act & Assert
         result = KubernetesModelMeta.get_resource_schema("core", "v1", "Pod")
-
-        # Assert
+        self.assertEqual(result, {"type": "object"})
+        # Act & Assert
+        result = KubernetesModelMeta.get_resource_schema("", "v1", "Pod")
+        self.assertEqual(result, {"type": "object"})
+        # Act & Assert
+        result = KubernetesModelMeta.get_resource_schema(None, "v1", "Pod")
         self.assertEqual(result, {"type": "object"})
 
     @patch("kubernetes_backend.models.get_openapi_schema")
