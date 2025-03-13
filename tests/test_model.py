@@ -1,7 +1,11 @@
+import json
 import logging
 import unittest
+import uuid
+from datetime import datetime
 from unittest.mock import Mock, patch
 
+from django.core.serializers import serialize
 from django.db import models
 
 import tests.setup  # noqa: F401; Imported for Django setup side-effect
@@ -334,6 +338,8 @@ class TestKubernetesModel(unittest.TestCase):
         cls.RbacModel = RbacModel
 
         class CustomModel(KubernetesModel):
+            etc = models.JSONField()
+
             class Meta:
                 app_label = "kubernetes_backend"
 
@@ -562,6 +568,31 @@ class TestKubernetesModel(unittest.TestCase):
 
         # Assert
         self.assertEqual(result, "test-namespace (cluster-wide)")
+
+    @patch("kubernetes_backend.models.KubernetesModelMeta.__new__")
+    def test_json_serialization(self, mock_new):
+        """Test JSON serialization handles datetime and UUID types."""
+        # Arrange
+        mock_new.return_value = self.CustomModel
+        instance = self.CustomModel(
+            **dict(
+                name="test-resource",
+                uid=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                etc={
+                    "creationTimestamp": datetime(2020, 1, 2, 3, 4, 5),
+                },
+            )
+        )
+
+        # Act
+        serialized = serialize("json", [instance])
+        new_instance = json.loads(serialized)[0]
+
+        # Assert
+        self.assertEqual(new_instance["pk"], "11111111-1111-1111-1111-111111111111")
+        self.assertEqual(
+            new_instance["fields"]["etc"]["creationTimestamp"], "2020-01-02T03:04:05"
+        )
 
 
 if __name__ == "__main__":
