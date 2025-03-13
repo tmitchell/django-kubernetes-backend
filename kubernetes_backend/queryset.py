@@ -3,7 +3,6 @@ import uuid
 
 from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
 from django.db.models import Q
-from django.db.models.manager import BaseManager
 from kubernetes import client
 
 logger = logging.getLogger(__name__)
@@ -373,7 +372,3 @@ class KubernetesQuerySet:
                 f"it returned {count}!"
             )
         return qs._result_cache[0]
-
-
-class KubernetesManager(BaseManager.from_queryset(KubernetesQuerySet)):
-    pass

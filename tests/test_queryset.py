@@ -9,7 +9,7 @@ from kubernetes import client
 
 import tests.setup  # noqa: F401; Imported for Django setup side-effect
 from kubernetes_backend.models import KubernetesModel
-from kubernetes_backend.queryset import KubernetesManager, KubernetesQuerySet
+from kubernetes_backend.queryset import KubernetesQuerySet
 
 logging.getLogger("kubernetes_backend").setLevel(logging.ERROR)
 
@@ -237,16 +237,6 @@ class TestKubernetesManager(unittest.TestCase):
         self.assertIsInstance(new_qs, KubernetesQuerySet)
         self.assertEqual(new_qs.model, self.CorePodModel)
         self.assertIsNot(new_qs, qs)
-
-    def test_manager_uses_queryset(self):
-        # Arrange
-        manager = KubernetesManager()
-
-        # Act
-        qs = manager.get_queryset()
-
-        # Assert
-        self.assertIsInstance(qs, KubernetesQuerySet)
 
 
 class TestQuerySet(unittest.TestCase):
