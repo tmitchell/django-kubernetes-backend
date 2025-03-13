@@ -6,7 +6,7 @@ from kubernetes_backend.models import KubernetesModel
 from kubernetes_backend.queryset import KubernetesQuerySet
 
 
-class KubernetesManagerTest(unittest.TestCase):
+class TestKubernetesManager(unittest.TestCase):
     def test_model_uses_manager(self):
         # Arrange
         class ManagerModel(KubernetesModel):

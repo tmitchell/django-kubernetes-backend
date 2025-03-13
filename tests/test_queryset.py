@@ -14,7 +14,7 @@ from kubernetes_backend.queryset import KubernetesQuerySet
 logging.getLogger("kubernetes_backend").setLevel(logging.ERROR)
 
 
-class TestKubernetesManager(unittest.TestCase):
+class TestKubernetesQuerySet(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -239,7 +239,7 @@ class TestKubernetesManager(unittest.TestCase):
         self.assertIsNot(new_qs, qs)
 
 
-class TestQuerySet(unittest.TestCase):
+class TestKubernetesQuerySetFilters(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
