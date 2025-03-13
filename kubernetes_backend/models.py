@@ -5,7 +5,7 @@ from django.db import models
 from django.db.models.base import ModelBase
 
 from .client import get_kubernetes_client, get_openapi_schema
-from .manager import KubernetesManager
+from .queryset import KubernetesManager
 
 logger = logging.getLogger(__name__)
 
