@@ -23,7 +23,7 @@ def get_kubernetes_client():
         client: The Kubernetes API client initialized with the correct configuration.
     """
     if hasattr(settings, "KUBERNETES_CONFIG"):
-        kubeconfig_path = settings.KUBERNETES_CONFIG.get("kubeconfig")
+        kubeconfig_path = settings.KUBERNETES_CONFIG.get("kubeconfig", None)
         context = settings.KUBERNETES_CONFIG.get("context", "default")
         if kubeconfig_path:
             logger.warning(f"Loading Kubernetes configuration from {kubeconfig_path}")

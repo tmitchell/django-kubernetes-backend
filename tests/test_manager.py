@@ -19,6 +19,17 @@ class TestKubernetesManager(unittest.TestCase):
     def setUpClass(cls):
         super().setUpClass()
 
+        cls.get_openapi_schema_patch = patch(
+            "kubernetes_backend.models.get_openapi_schema"
+        )
+        cls.mock_get_openapi_schema = cls.get_openapi_schema_patch.start()
+        cls.mock_get_openapi_schema.return_value = {"definitions": {}}
+
+        cls.get_api_client_patch = patch(
+            "kubernetes_backend.models.KubernetesModel.get_api_client"
+        )
+        cls.mock_get_openapi_schema = cls.get_api_client_patch.start()
+
         class CorePodModel(KubernetesModel):
             class Meta:
                 app_label = "kubernetes_backend"
@@ -69,6 +80,13 @@ class TestKubernetesManager(unittest.TestCase):
                 require_schema = False
 
         cls.ManagerCustomModel = ManagerCustomModel
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.get_openapi_schema_patch.stop()
+        cls.get_api_client_patch.stop()
+
+        super().tearDownClass()
 
     def test_invalid_group_raises_value_error(self):
         # Arrange & Act & Assert

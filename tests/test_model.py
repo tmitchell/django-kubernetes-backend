@@ -11,6 +11,22 @@ logging.getLogger("kubernetes_backend").setLevel(logging.ERROR)
 
 
 class TestKubernetesMetaModel(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+
+        cls.get_openapi_schema_patch = patch(
+            "kubernetes_backend.models.get_openapi_schema"
+        )
+        cls.mock_get_openapi_schema = cls.get_openapi_schema_patch.start()
+        cls.mock_get_openapi_schema.return_value = {"definitions": {}}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.get_openapi_schema_patch.stop()
+
+        super().tearDownClass()
+
     def test_base_class_skipped(self):
         result = KubernetesModelMeta.__new__(
             KubernetesModelMeta, "KubernetesModel", (), {}
@@ -285,8 +301,15 @@ class TestKubernetesModel(unittest.TestCase):
     def setUpClass(cls):
         super().setUpClass()
 
+        cls.get_openapi_schema_patch = patch(
+            "kubernetes_backend.models.get_openapi_schema"
+        )
+        cls.mock_get_openapi_schema = cls.get_openapi_schema_patch.start()
+        cls.mock_get_openapi_schema.return_value = {"definitions": {}}
+
         # Define test models once to avoid re-registration warnings
         class CoreModel(KubernetesModel):
+
             class Meta:
                 app_label = "kubernetes_backend"
 
@@ -334,6 +357,12 @@ class TestKubernetesModel(unittest.TestCase):
                 require_schema = False
 
         cls.NamespaceModel = NamespaceModel
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.get_openapi_schema_patch.stop()
+
+        super().tearDownClass()
 
     def test_model_is_abstract(self):
         # Assert
