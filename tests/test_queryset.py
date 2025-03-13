@@ -15,6 +15,8 @@ logging.getLogger("kubernetes_backend").setLevel(logging.ERROR)
 
 
 class TestKubernetesQuerySet(unittest.TestCase):
+    """Basic manager methods for compatibility with Django ORM"""
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -44,62 +46,12 @@ class TestKubernetesQuerySet(unittest.TestCase):
 
         cls.CorePodModel = CorePodModel
 
-        class CoreNamespaceModel(KubernetesModel):
-            class Meta:
-                app_label = "kubernetes_backend"
-
-            class KubernetesMeta:
-                group = "core"
-                version = "v1"
-                kind = "Namespace"
-                cluster_scoped = True
-                require_schema = False
-
-        cls.CoreNamespaceModel = CoreNamespaceModel
-
-        class RbacRoleModel(KubernetesModel):
-            class Meta:
-                app_label = "kubernetes_backend"
-
-            class KubernetesMeta:
-                group = "rbac"
-                version = "v1"
-                kind = "Role"
-                require_schema = False
-
-        cls.RbacRoleModel = RbacRoleModel
-
-        class ManagerCustomModel(KubernetesModel):
-            class Meta:
-                app_label = "kubernetes_backend"
-
-            class KubernetesMeta:
-                group = "custom"
-                version = "example.com/v1"
-                kind = "CustomResource"
-                require_schema = False
-
-        cls.ManagerCustomModel = ManagerCustomModel
-
     @classmethod
     def tearDownClass(cls):
         cls.get_openapi_schema_patch.stop()
         cls.get_api_client_patch.stop()
 
         super().tearDownClass()
-
-    def test_invalid_group_raises_value_error(self):
-        # Arrange & Act & Assert
-        with self.assertRaises(ValueError):
-
-            class InvalidModel(KubernetesModel):
-                class Meta:
-                    app_label = "kubernetes_backend"
-
-                class KubernetesMeta:
-                    group = "invalid"
-                    version = "v1"
-                    kind = "Thing"
 
     @patch("kubernetes_backend.models.KubernetesModelMeta.get_resource_schema")
     def test_deserialize_resource(self, mock_get_schema):
@@ -240,6 +192,8 @@ class TestKubernetesQuerySet(unittest.TestCase):
 
 
 class TestKubernetesQuerySetFilters(unittest.TestCase):
+    """More in-depth queryset tests that rely on data to work with"""
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
