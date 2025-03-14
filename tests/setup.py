@@ -8,9 +8,8 @@ if not settings.configured:
     import django
 
     settings.configure(
-        KUBERNETES_CONFIG={},
         INSTALLED_APPS=[
-            "kubernetes_backend",
+            "tests",
         ],
     )
     django.setup()
