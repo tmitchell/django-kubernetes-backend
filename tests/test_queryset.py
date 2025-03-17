@@ -22,7 +22,7 @@ class TestKubernetesQuerySet(unittest.TestCase):
         super().setUpClass()
 
         cls.get_openapi_schema_patch = patch(
-            "kubernetes_backend.models.get_openapi_schema"
+            "kubernetes_backend.client.k8s_api.get_openapi_schema"
         )
         cls.mock_get_openapi_schema = cls.get_openapi_schema_patch.start()
         cls.mock_get_openapi_schema.return_value = {"definitions": {}}
@@ -53,7 +53,7 @@ class TestKubernetesQuerySet(unittest.TestCase):
 
         super().tearDownClass()
 
-    @patch("kubernetes_backend.models.KubernetesModelMeta.get_resource_schema")
+    @patch("kubernetes_backend.client.k8s_api.get_resource_schema")
     def test_deserialize_resource(self, mock_get_schema):
         # Mock schema to include spec
         mock_get_schema.return_value = {
@@ -198,6 +198,12 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
     def setUpClass(cls):
         super().setUpClass()
 
+        cls.get_openapi_schema_patch = patch(
+            "kubernetes_backend.client.k8s_api.get_openapi_schema"
+        )
+        cls.mock_get_openapi_schema = cls.get_openapi_schema_patch.start()
+        cls.mock_get_openapi_schema.return_value = {"definitions": {}}
+
         class Pod(KubernetesModel):
             class Meta:
                 app_label = "kubernetes_backend"
@@ -211,6 +217,12 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
             spec = models.JSONField(default=dict, blank=True, null=True)
 
         cls.Pod = Pod
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.get_openapi_schema_patch.stop()
+
+        return super().tearDownClass()
 
     def setUp(self):
         # Mock the Kubernetes API client to avoid real API calls

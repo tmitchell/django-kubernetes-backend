@@ -4,7 +4,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.db.models.base import ModelBase
 
-from .client import get_kubernetes_client, get_openapi_schema
+from .client import k8s_api
 from .manager import KubernetesManager
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ class KubernetesModelMeta(ModelBase):
             setattr(new_class._meta, f"kubernetes_{attr_name}", value)
 
         # Fetch and generate fields from schema
-        schema = cls.get_resource_schema(
+        schema = k8s_api.get_resource_schema(
             _k8s_meta.group,
             _k8s_meta.version,
             _k8s_meta.kind,
@@ -95,30 +95,6 @@ class KubernetesModelMeta(ModelBase):
         elif _k8s_meta.require_schema:
             raise ValueError(f"Schema required but not found for {_k8s_meta.kind}")
         return new_class
-
-    @staticmethod
-    def get_resource_schema(group, version, kind):
-        """
-        Fetch the OpenAPI schema for a specific Kubernetes resource.
-        """
-        openapi_schema = get_openapi_schema()
-
-        if not group:
-            key = f"io.k8s.api.core.{version}.{kind}"
-        else:
-            if group in K8S_DEFAULT_GROUPS:
-                normalized_group = group.rstrip(".k8s.io")
-                # if dotted, just grab the left-most (e.g. rbac.authorization -> rbac)
-                prefix = normalized_group.split(".")[0]
-                group = f"{prefix}.api.k8s.io"
-            # All paths should be normalized and we can reverse the name to find it
-            reversed_group = ".".join(group.split(".")[::-1])
-            key = f"{reversed_group}.{version}.{kind}"
-
-        schema = openapi_schema.get("definitions", {}).get(key, {})
-        if not schema:
-            logger.warning(f"No schema found for {key}, using default")
-        return schema
 
     @staticmethod
     def generate_fields_from_schema(schema):
@@ -185,26 +161,13 @@ class KubernetesModel(models.Model, metaclass=KubernetesModelMeta):
     @classmethod
     def get_api_client(cls):
         """Return the appropriate Kubernetes API client for this model."""
-        group = cls._meta.kubernetes_group
-        version = cls._meta.kubernetes_version
-        k8s_client = get_kubernetes_client()
+        return k8s_api.get_api_client(
+            cls._meta.kubernetes_group, cls._meta.kubernetes_version
+        )
 
-        # Core API special case
-        if group == "core":
-            return k8s_client.CoreV1Api()
-
-        # Attempt to load the API class dynamically based on group and version
-        group = group.rstrip("k8s.io")
-        normalized_group = "".join(word.capitalize() for word in group.split("."))
-        api_class_name = f"{normalized_group}{version.capitalize()}Api"
-
-        logger.debug(f"Looking for {api_class_name} on K8s client")
-        if hasattr(k8s_client, api_class_name):
-            logger.debug(f"Using {api_class_name} on K8s client")
-            return getattr(k8s_client, api_class_name)()
-
-        # Fallback to CustomObjectsApi for custom resources
-        return k8s_client.CustomObjectsApi()
+    @classmethod
+    def is_custom_resource(cls):
+        return cls._meta.kubernetes_group not in K8S_DEFAULT_GROUPS
 
     def save(self, *args, **kwargs):
         """Save the model instance to Kubernetes."""
