@@ -11,25 +11,10 @@ from django.db import models
 import tests.setup  # noqa: F401; Imported for Django setup side-effect
 from kubernetes_backend.models import KubernetesModel, KubernetesModelMeta
 
-logging.getLogger("kubernetes_backend").setLevel(logging.ERROR)
+logging.getLogger("kubernetes_backend.client").setLevel(logging.ERROR)
 
 
 class TestKubernetesMetaModel(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-
-        cls.get_openapi_schema_patch = patch(
-            "kubernetes_backend.models.get_openapi_schema"
-        )
-        cls.mock_get_openapi_schema = cls.get_openapi_schema_patch.start()
-        cls.mock_get_openapi_schema.return_value = {"definitions": {}}
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.get_openapi_schema_patch.stop()
-
-        super().tearDownClass()
 
     def test_base_class_skipped(self):
         result = KubernetesModelMeta.__new__(
@@ -58,8 +43,19 @@ class TestKubernetesMetaModel(unittest.TestCase):
                     api_version = "v1"
                     group = "core"
 
-    def test_valid_kubernetes_meta(self):
+    @patch("kubernetes_backend.client.k8s_api.get_openapi_schema")
+    def test_valid_kubernetes_meta(self, mock_get_openapi_schema):
         # Arrange
+        mock_get_openapi_schema.return_value = {
+            "definitions": {
+                "io.k8s.api.core.v1.Pod": {
+                    "properties": {
+                        "spec": {"type": "object"},
+                    }
+                }
+            }
+        }
+
         class ValidModel(models.Model, metaclass=KubernetesModelMeta):
             class Meta:
                 app_label = "kubernetes_backend"
@@ -77,7 +73,7 @@ class TestKubernetesMetaModel(unittest.TestCase):
         self.assertEqual(ValidModel._meta.kubernetes_kind, "Pod")
         self.assertFalse(ValidModel._meta.kubernetes_cluster_scoped)
 
-    @patch("kubernetes_backend.models.get_openapi_schema")
+    @patch("kubernetes_backend.client.k8s_api.get_openapi_schema")
     def test_field_generation(self, mock_get_openapi_schema):
         # Arrange
         mock_get_openapi_schema.return_value = {
@@ -112,77 +108,6 @@ class TestKubernetesMetaModel(unittest.TestCase):
         # Assert
         self.assertIsInstance(spec_field, models.JSONField)
         self.assertIsInstance(count_field, models.IntegerField)
-
-    @patch("kubernetes_backend.models.get_openapi_schema")
-    def test_get_k8s_resource_schema_core(self, mock_get_openapi_schema):
-        # Arrange
-        mock_get_openapi_schema.return_value = {
-            "definitions": {"io.k8s.api.core.v1.Pod": {"type": "object"}}
-        }
-
-        # Act & Assert
-        result = KubernetesModelMeta.get_resource_schema("core", "v1", "Pod")
-        self.assertEqual(result, {"type": "object"})
-        # Act & Assert
-        result = KubernetesModelMeta.get_resource_schema("", "v1", "Pod")
-        self.assertEqual(result, {"type": "object"})
-        # Act & Assert
-        result = KubernetesModelMeta.get_resource_schema(None, "v1", "Pod")
-        self.assertEqual(result, {"type": "object"})
-
-    @patch("kubernetes_backend.models.get_openapi_schema")
-    def test_get_resource_schema_storage(self, mock_get_openapi_schema):
-        # Arrange
-        mock_get_openapi_schema.return_value = {
-            "definitions": {"io.k8s.api.storage.v1.StorageClass": {"type": "object"}}
-        }
-
-        # Act
-        result = KubernetesModelMeta.get_resource_schema(
-            "storage.k8s.io", "v1", "StorageClass"
-        )
-
-        # Assert
-        self.assertEqual(result, {"type": "object"})
-
-    @patch("kubernetes_backend.models.get_openapi_schema")
-    def test_get_resource_schema_rbac(self, mock_get_openapi_schema):
-        # Arrange
-        mock_get_openapi_schema.return_value = {
-            "definitions": {"io.k8s.api.rbac.v1.Role": {"type": "object"}}
-        }
-
-        # Act
-        result = KubernetesModelMeta.get_resource_schema(
-            "rbac.authorization.k8s.io", "v1", "Role"
-        )
-
-        # Assert
-        self.assertEqual(result, {"type": "object"})
-
-    @patch("kubernetes_backend.models.get_openapi_schema")
-    def test_get_resource_schema_custom(self, mock_get_openapi_schema):
-        # Arrange
-        mock_get_openapi_schema.return_value = {
-            "definitions": {"io.cattle.k3s.v1.Addon": {"type": "object"}}
-        }
-
-        # Act
-        result = KubernetesModelMeta.get_resource_schema("k3s.cattle.io", "v1", "Addon")
-
-        # Assert
-        self.assertEqual(result, {"type": "object"})
-
-    @patch("kubernetes_backend.models.get_openapi_schema")
-    def test_get_resource_schema_missing(self, mock_get_openapi_schema):
-        # Arrange
-        mock_get_openapi_schema.return_value = {"definitions": {}}
-
-        # Act
-        result = KubernetesModelMeta.get_resource_schema("core", "v1", "Unknown")
-
-        # Assert
-        self.assertEqual(result, {})
 
     def test_map_schema_to_django_field_no_schema(self):
         # Arrange & Act
@@ -276,7 +201,10 @@ class TestKubernetesMetaModel(unittest.TestCase):
         self.assertIsInstance(fields["count"], models.IntegerField)
         self.assertIsInstance(fields["spec"], models.JSONField)
 
-    def test_invalid_group_raises_value_error(self):
+    @patch("kubernetes_backend.client.k8s_api.get_openapi_schema")
+    def test_invalid_group_raises_value_error(self, mock_get_openapi_schema):
+        mock_get_openapi_schema.return_value = {"definitions": {}}
+
         with self.assertRaises(ValueError):
 
             class BadGroupModel(KubernetesModel):
@@ -288,7 +216,9 @@ class TestKubernetesMetaModel(unittest.TestCase):
                     version = "v1"
                     kind = "Thing"
 
-    def test_missing_kind_raises_value_error(self):
+    @patch("kubernetes_backend.client.k8s_api.get_openapi_schema")
+    def test_missing_kind_raises_value_error(self, mock_get_openapi_schema):
+        mock_get_openapi_schema.return_value = {"definitions": {}}
         with self.assertRaises(ValueError):
 
             class NoKindModel(KubernetesModel):
@@ -306,7 +236,7 @@ class TestKubernetesModel(unittest.TestCase):
         super().setUpClass()
 
         cls.get_openapi_schema_patch = patch(
-            "kubernetes_backend.models.get_openapi_schema"
+            "kubernetes_backend.client.k8s_api.get_openapi_schema"
         )
         cls.mock_get_openapi_schema = cls.get_openapi_schema_patch.start()
         cls.mock_get_openapi_schema.return_value = {"definitions": {}}
@@ -385,45 +315,6 @@ class TestKubernetesModel(unittest.TestCase):
         )
         # Check manager via concrete subclass, abstract models may not bind it directly
         self.assertTrue(hasattr(self.CoreModel, "objects"))
-
-    @patch("kubernetes_backend.models.get_kubernetes_client")
-    def test_get_api_client_core(self, mock_get_client):
-        # Arrange
-        mock_client = Mock()
-        mock_get_client.return_value = mock_client
-
-        # Act
-        api_client = self.CoreModel.get_api_client()
-
-        # Assert
-        self.assertEqual(api_client, mock_client.CoreV1Api.return_value)
-        mock_client.CoreV1Api.assert_called_once()
-
-    @patch("kubernetes_backend.models.get_kubernetes_client")
-    def test_get_api_client_rbac(self, mock_get_client):
-        # Arrange
-        mock_client = Mock()
-        mock_get_client.return_value = mock_client
-
-        # Act
-        api_client = self.RbacModel.get_api_client()
-
-        # Assert
-        self.assertEqual(api_client, mock_client.RbacAuthorizationV1Api.return_value)
-        mock_client.RbacAuthorizationV1Api.assert_called_once()
-
-    @patch("kubernetes_backend.models.get_kubernetes_client")
-    def test_get_api_client_custom(self, mock_get_client):
-        # Arrange
-        mock_client = Mock(spec=["CustomObjectsApi"])
-        mock_get_client.return_value = mock_client
-
-        # Act
-        api_client = self.CustomModel.get_api_client()
-
-        # Assert
-        mock_client.CustomObjectsApi.assert_called_once()
-        self.assertEqual(api_client, mock_client.CustomObjectsApi.return_value)
 
     @patch("kubernetes_backend.models.KubernetesModel.get_api_client")
     def test_save_cluster_scoped_with_namespace_raises_error(self, mock_get_client):
