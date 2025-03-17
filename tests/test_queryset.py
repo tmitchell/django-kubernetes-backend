@@ -526,6 +526,19 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
         self.assertEqual(len(queryset), 1)
         self.assertEqual(queryset[0].name, "pod1")
 
+    def test_filter_by_raw_simple_q(self):
+        """Test filtering with a raw Q object having no connector."""
+        from django.db.models import Q
+
+        # Manually construct a Q with connector=None
+        q = Q()
+        q.connector = None  # Force no connector
+        q.children = [("name", "pod1")]
+        logging.getLogger("kubernetes_backend").setLevel(logging.DEBUG)
+        queryset = self.Pod.objects.filter(q)
+        self.assertEqual(len(queryset), 1)
+        self.assertEqual(queryset[0].name, "pod1")
+
     def test_match_field_edge_cases(self):
         """Test _match_field with None values and unsupported lookups."""
         qs = self.Pod.objects.all()
