@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import tests.setup  # noqa: F401; Imported for Django setup side-effect
 from kubernetes_backend.manager import KubernetesManager
@@ -7,15 +8,18 @@ from kubernetes_backend.queryset import KubernetesQuerySet
 
 
 class TestKubernetesManager(unittest.TestCase):
-    def test_model_uses_manager(self):
+    @patch("kubernetes_backend.client.k8s_api.get_openapi_schema")
+    def test_model_uses_manager(self, mock_get_openapi_schema):
+        mock_get_openapi_schema.return_value = {"definitions": {}}
+
         # Arrange
         class ManagerModel(KubernetesModel):
             class Meta:
                 app_label = "kubernetes_backend"
 
             class KubernetesMeta:
-                group = "custom"
-                version = "example.com/v1"
+                group = "custom.example.com"
+                version = "v1"
                 kind = "CustomResource"
                 require_schema = False
 
@@ -34,3 +38,7 @@ class TestKubernetesManager(unittest.TestCase):
 
         # Assert
         self.assertIsInstance(qs, KubernetesQuerySet)
+
+
+if __name__ == "__main__":
+    unittest.main()
