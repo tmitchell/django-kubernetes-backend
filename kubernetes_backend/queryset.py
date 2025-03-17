@@ -120,14 +120,6 @@ class KubernetesQuerySet:
         """
         return self._clone()
 
-    def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            return False
-        return self.uid == other.uid
-
-    def __hash__(self):
-        return hash(self.uid)
-
     def __iter__(self):
         """
         Allow iteration over the queryset (e.g. for pod in Pod.objects.all()).
@@ -287,6 +279,10 @@ class KubernetesQuerySet:
             if actual_value is None:
                 return False
             return actual_value < value
+        elif lookup == "in":
+            if actual_value is None:
+                return False
+            return actual_value in value
         else:
             logger.warning(f"Unsupported lookup: {lookup}")
             return False
@@ -317,25 +313,21 @@ class KubernetesQuerySet:
         if self._result_cache is None:
             self._fetch_all()
 
-        # Split field names and directions
+        # Split field names and directions into a list of (field, reverse) tuples
         fields = []
-        reverse = False
         for field in field_names:
             if field.startswith("-"):
-                fields.append(field[1:])
-                reverse = True  # Only reverse if any field is descending
+                fields.append((field[1:], True))  # Descending
             else:
-                fields.append(field)
+                fields.append((field, False))  # Ascending
 
-        # Sort in-memory with tuple key
-        sorted_items = sorted(
-            self._result_cache,
-            key=lambda item: tuple(
-                self._get_field_value(item, field) or ""  # None to '' for sorting
-                for field in fields
-            ),
-            reverse=reverse,  # Apply descending order here
-        )
+        # Sort in-memory, applying each field in sequence from right to left
+        sorted_items = self._result_cache[:]
+        for field, reverse in reversed(fields):
+            sorted_items.sort(
+                key=lambda item: self._get_field_value(item, field) or "",
+                reverse=reverse,
+            )
 
         # Clone and set sorted results
         qs = self.clone()

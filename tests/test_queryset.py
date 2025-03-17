@@ -32,6 +32,16 @@ class TestKubernetesQuerySet(unittest.TestCase):
         )
         cls.mock_get_api_client = cls.get_api_client_patch.start()
 
+        cls.get_resource_schema_patch = patch(
+            "kubernetes_backend.client.k8s_api.get_resource_schema"
+        )
+        cls.mock_get_resource_schema = cls.get_resource_schema_patch.start()
+        cls.mock_get_resource_schema.return_value = {
+            "properties": {
+                "spec": {"type": "object"},
+            }
+        }
+
         class CorePodModel(KubernetesModel):
             class Meta:
                 app_label = "kubernetes_backend"
@@ -40,7 +50,6 @@ class TestKubernetesQuerySet(unittest.TestCase):
                 group = "core"
                 version = "v1"
                 kind = "Pod"
-                require_schema = False
 
             spec = models.JSONField(default=dict, blank=True, null=True)
 
@@ -48,6 +57,7 @@ class TestKubernetesQuerySet(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        cls.get_resource_schema_patch.stop()
         cls.get_openapi_schema_patch.stop()
         cls.get_api_client_patch.stop()
 
@@ -190,6 +200,44 @@ class TestKubernetesQuerySet(unittest.TestCase):
         self.assertEqual(new_qs.model, self.CorePodModel)
         self.assertIsNot(new_qs, qs)
 
+    @patch("kubernetes_backend.client.k8s_api.get_resource_schema")
+    def test_deserialize_resource_invalid(self, mock_get_schema):
+        """Test _deserialize_resource with invalid resource data."""
+        mock_get_schema.return_value = {"properties": {"metadata": {"type": "object"}}}
+        qs = KubernetesQuerySet(self.CorePodModel)
+        resource_data = Mock(to_dict=None)  # No to_dict method
+
+        with self.assertRaises(ValueError) as cm:
+            qs._deserialize_resource(resource_data)
+        self.assertIn("to_dict()", str(cm.exception))
+
+    @patch("kubernetes_backend.client.k8s_api.get_api_client")
+    def test_fetch_all_custom_resource_error(self, mock_get_api_client):
+        """Test _fetch_all with custom resource and API errors."""
+        mock_api = Mock()
+        mock_api.list_namespaced_custom_object.side_effect = (
+            client.exceptions.ApiException(status=403)
+        )
+        mock_core_api = Mock()
+        mock_core_api.list_namespace.return_value = Mock(
+            items=[Mock(metadata=Mock(name="default"))]
+        )
+        mock_get_api_client.side_effect = [mock_api, mock_core_api]
+
+        class CustomModelFoo(KubernetesModel):
+            class Meta:
+                app_label = "kubernetes_backend"
+
+            class KubernetesMeta:
+                group = "custom.example.com"
+                version = "v1"
+                kind = "Custom"
+                require_schema = False
+
+        qs = KubernetesQuerySet(CustomModelFoo)
+        qs._fetch_all()
+        self.assertEqual(qs._result_cache, [])
+
 
 class TestKubernetesQuerySetFilters(unittest.TestCase):
     """More in-depth queryset tests that rely on data to work with"""
@@ -208,7 +256,11 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
             "kubernetes_backend.client.k8s_api.get_resource_schema"
         )
         cls.mock_get_resource_schema = cls.get_resource_schema_patch.start()
-        cls.mock_get_resource_schema.return_value = {}
+        cls.mock_get_resource_schema.return_value = {
+            "properties": {
+                "spec": {"type": "object"},
+            }
+        }
 
         class Pod(KubernetesModel):
             class Meta:
@@ -218,7 +270,6 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
                 group = "core"
                 version = "v1"
                 kind = "Pod"
-                require_schema = False
 
             spec = models.JSONField(default=dict, blank=True, null=True)
 
@@ -244,7 +295,10 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
                     "uid": uuid.UUID("11111111-1111-1111-1111-111111111111"),
                     "labels": {"app": "myapp", "env": "prod"},
                     "annotations": {"created_by": "admin"},
-                }
+                },
+                "spec": {
+                    "value": 10,
+                },
             },
             {
                 "metadata": {
@@ -253,7 +307,10 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
                     "uid": uuid.UUID("22222222-2222-2222-2222-222222222222"),
                     "labels": {"app": "system", "env": "prod"},
                     "annotations": {"created_by": "system"},
-                }
+                },
+                "spec": {
+                    "value": 20,
+                },
             },
             {
                 "metadata": {
@@ -262,7 +319,10 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
                     "uid": uuid.UUID("33333333-3333-3333-3333-333333333333"),
                     "labels": {"app": "myapp", "env": "dev"},
                     "annotations": {"created_by": "admin"},
-                }
+                },
+                "spec": {
+                    "value": 15,
+                },
             },
         ]
 
@@ -375,8 +435,38 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
         self.assertEqual(str(queryset[0].pk), "11111111-1111-1111-1111-111111111111")
         self.assertEqual(queryset[0].name, "pod1")
 
+    def test_filter_by_value_lt(self):
+        """Test filtering by less than value."""
+        queryset = self.Pod.objects.filter(spec__value__lt=15)
+        self.assertEqual(len(queryset), 1)
+        names = {pod.name for pod in queryset}
+        self.assertEqual(names, {"pod1"})
+
+    def test_filter_by_value_gt(self):
+        """Test filtering by greater than value."""
+        queryset = self.Pod.objects.filter(spec__value__gt=12)
+        self.assertEqual(len(queryset), 2)
+        names = {pod.name for pod in queryset}
+        self.assertEqual(names, {"pod2", "pod3"})
+
+    def test_filter_by_nested_q(self):
+        """Test filtering with nested Q objects."""
+        from django.db.models import Q
+
+        queryset = self.Pod.objects.filter(
+            Q(Q(name="pod1") | Q(namespace="kube-system")) & Q(labels__app="myapp")
+        )
+        self.assertEqual(len(queryset), 1)
+        self.assertEqual(queryset[0].name, "pod1")
+
     def test_order_by(self):
         """Test ordering by field names, including descending and nested fields."""
+        qs = self.Pod.objects.order_by()  # No-op case
+        self.assertEqual(len(qs), 3)  # Just checks it doesn’t crash
+
+        qs = self.Pod.objects.order_by("spec__value", "-name")
+        # 10 (pod1), 15 (pod3), 20 (pod2)
+        self.assertEqual([pod.name for pod in qs], ["pod1", "pod3", "pod2"])
         qs = self.Pod.objects.order_by("namespace")
         # default, default, kube-system
         self.assertEqual([pod.name for pod in qs], ["pod1", "pod3", "pod2"])
