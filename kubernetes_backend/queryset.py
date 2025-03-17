@@ -3,7 +3,9 @@ import uuid
 
 from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
 from django.db.models import Q
-from kubernetes import client
+from kubernetes.client.exceptions import ApiException
+
+from kubernetes_backend.client import k8s_api
 
 logger = logging.getLogger(__name__)
 
@@ -27,45 +29,35 @@ class KubernetesQuerySet:
         version = self.model._meta.kubernetes_version
         kind = self.model._meta.kubernetes_kind
         plural = self.model._meta.kubernetes_plural
+        cluster_scoped = self.model._meta.kubernetes_cluster_scoped
 
-        try:
-            if group in (
-                "apps",
-                "batch",
-                "core",
-                "autoscaling",
-                "networking",
-                "rbac.authorization.k8s.io",
-            ):
-                method = f"list_{kind.lower()}_for_all_namespaces"
+        def fetch_custom_objects(namespaces):
+            for ns in namespaces:
+                try:
+                    response = api.list_namespaced_custom_object(
+                        group, version, ns, plural
+                    )
+                    for i in response["items"]:
+                        yield i
+                except ApiException as e:
+                    # Ignore if CR doesn’t exist in this namespace
+                    if e.status != 404:
+                        pass
+
+        if self.model.is_custom_resource():
+            # Fetch CRs across all namespaces
+            core_api = k8s_api.get_api_client("core", "v1")
+            namespaces = [ns.metadata.name for ns in core_api.list_namespace().items]
+            items = fetch_custom_objects(namespaces)
+        else:
+            if cluster_scoped:
+                method = f"list_{kind.lower()}"
                 response = getattr(api, method)()
                 items = response.items
             else:
-                if self.model._meta.kubernetes_cluster_scoped:
-                    response = api.list_cluster_custom_object(group, version, plural)
-                    items = response["items"]
-                else:
-                    # Fetch CRDs across all namespaces
-                    core_api = client.CoreV1Api()
-                    namespaces = [
-                        ns.metadata.name for ns in core_api.list_namespace().items
-                    ]
-                    items = []
-                    for ns in namespaces:
-                        try:
-                            response = api.list_namespaced_custom_object(
-                                group, version, ns, plural
-                            )
-                            items.extend(response["items"])
-                        except client.ApiException as e:
-                            if (
-                                e.status != 404
-                            ):  # Ignore if CRD doesn’t exist in this namespace
-                                logger.warning(f"Failed to list {kind} in {ns}: {e}")
-
-        except client.ApiException as e:
-            logger.error(f"Failed to list {kind}: {e}")
-            return []
+                method = f"list_{kind.lower()}_for_all_namespaces"
+                response = getattr(api, method)()
+                items = response.items
 
         self._result_cache = [self._deserialize_resource(item) for item in items]
         return self
