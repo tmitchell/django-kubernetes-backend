@@ -252,7 +252,7 @@ class KubernetesQuerySet:
         Supports most lookup types and nested fields (e.g., labels__key).
         """
         field_parts = field_name.split("__")
-        valid_lookups = {"exact", "icontains", "startswith", "gt", "lt"}
+        valid_lookups = {"exact", "icontains", "startswith", "gt", "lt", "in"}
         lookup = (
             field_parts[-1]
             if len(field_parts) > 1 and field_parts[-1] in valid_lookups

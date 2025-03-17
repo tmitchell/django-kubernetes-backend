@@ -496,6 +496,26 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
         names = {pod.name for pod in queryset}
         self.assertEqual(names, {"pod2", "pod3"})
 
+    def test_filter_by_in_lookup(self):
+        """Test filtering with the __in lookup, including None values."""
+        # Test basic __in with labels__app
+        queryset = self.Pod.objects.filter(labels__app__in=["myapp", "system"])
+        self.assertEqual(len(queryset), 3)  # pod1, pod2, pod3 all match
+        names = {pod.name for pod in queryset}
+        self.assertEqual(names, {"pod1", "pod2", "pod3"})
+
+        # Add a pod with spec.value = None and test __in
+        qs = self.Pod.objects.all()
+        list(qs)  # Trigger _fetch_all
+        pod_none = self.Pod(uid=uuid.uuid4(), name="pod_none", spec={})
+        qs._result_cache.append(pod_none)
+
+        # Test spec__value__in with None present
+        queryset = qs.filter(spec__value__in=[10, 15, 20])
+        self.assertEqual(len(queryset), 3)  # pod1, pod2, pod3 (None excluded)
+        names = {pod.name for pod in queryset}
+        self.assertEqual(names, {"pod1", "pod2", "pod3"})
+
     def test_filter_by_nested_q(self):
         """Test filtering with nested Q objects."""
         from django.db.models import Q
