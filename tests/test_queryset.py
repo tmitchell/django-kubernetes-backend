@@ -238,6 +238,39 @@ class TestKubernetesQuerySet(unittest.TestCase):
         qs._fetch_all()
         self.assertEqual(qs._result_cache, [])
 
+    @patch("kubernetes_backend.client.k8s_api.get_api_client")
+    def test_fetch_all_custom_resource_success_and_error(self, mock_get_api_client):
+        """Test _fetch_all with custom resources, both success and non-404 error."""
+        mock_api = Mock()
+        # First namespace succeeds, second fails with 500
+        mock_api.list_namespaced_custom_object.side_effect = [
+            {"items": [{"metadata": {"uid": "123", "name": "cr1"}}]},
+            client.exceptions.ApiException(status=500),
+        ]
+        mock_core_api = Mock()
+        mock_core_api.list_namespace.return_value = Mock(
+            items=[
+                Mock(metadata=Mock(name="ns1")),
+                Mock(metadata=Mock(name="ns2")),
+            ]
+        )
+        mock_get_api_client.side_effect = [mock_api, mock_core_api]
+
+        class CustomModelBaz(KubernetesModel):
+            class Meta:
+                app_label = "kubernetes_backend"
+
+            class KubernetesMeta:
+                group = "custom.example.com"
+                version = "v1"
+                kind = "Custom"
+                require_schema = False
+
+        qs = KubernetesQuerySet(CustomModelBaz)
+        qs._fetch_all()
+        self.assertEqual(len(qs._result_cache), 1)  # One successful fetch
+        self.assertEqual(qs._result_cache[0].name, "cr1")
+
     def test_queryset_equality(self):
         """Test queryset equality based on contents."""
         qs1 = KubernetesQuerySet(self.CorePodModel)
@@ -472,6 +505,24 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
         )
         self.assertEqual(len(queryset), 1)
         self.assertEqual(queryset[0].name, "pod1")
+
+    def test_match_field_edge_cases(self):
+        """Test _match_field with None values and unsupported lookups."""
+        qs = self.Pod.objects.all()
+        list(qs)  # force fetch
+        # Add a pod with spec.value = None
+        pod_none = self.Pod(uid=uuid.uuid4(), name="pod_none", spec={})
+        qs._result_cache.append(pod_none)
+
+        # Test None with gt/lt
+        filtered = qs.filter(spec__value__gt=5)
+        self.assertEqual(len(filtered), 3)  # pod2, pod3 (None excluded)
+        filtered = qs.filter(spec__value__lt=15)
+        self.assertEqual(len(filtered), 1)  # pod1 (None excluded)
+
+        # Test unsupported lookup
+        filtered = qs.filter(spec__value__invalid="foo")
+        self.assertEqual(len(filtered), 0)  # Should log warning and return False
 
     def test_order_by(self):
         """Test ordering by field names, including descending and nested fields."""
