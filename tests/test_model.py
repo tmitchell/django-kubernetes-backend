@@ -40,7 +40,7 @@ class TestKubernetesMetaModel(unittest.TestCase):
                     app_label = "kubernetes_backend"
 
                 class KubernetesMeta:
-                    api_version = "v1"
+                    version = "v1"
                     group = "core"
 
     @patch("kubernetes_backend.client.k8s_api.get_openapi_schema")
@@ -73,8 +73,44 @@ class TestKubernetesMetaModel(unittest.TestCase):
         self.assertEqual(ValidModel._meta.kubernetes_kind, "Pod")
         self.assertFalse(ValidModel._meta.kubernetes_cluster_scoped)
 
+    @patch("kubernetes_backend.client.k8s_api.get_resource_schema")
     @patch("kubernetes_backend.client.k8s_api.get_openapi_schema")
-    def test_field_generation(self, mock_get_openapi_schema):
+    def test_valid_kubernetes_meta_with_schema(
+        self, mock_get_openapi_schema, mock_get_resource_schema
+    ):
+        mock_get_openapi_schema.return_value = {
+            "definitions": {
+                "io.k8s.api.core.v1.Pod": {
+                    "properties": {
+                        "spec": {"type": "object"},
+                    }
+                }
+            }
+        }
+        mock_get_resource_schema.return_value = {
+            "properties": {"spec": {"type": "object"}}
+        }
+
+        class ValidModelSchema(models.Model, metaclass=KubernetesModelMeta):
+            class Meta:
+                app_label = "kubernetes_backend"
+
+            class KubernetesMeta:
+                group = "core"
+                version = "v1"
+                kind = "Pod"
+                cluster_scoped = False
+                require_schema = True
+
+        # Assert
+        self.assertEqual(ValidModelSchema._meta.kubernetes_group, "core")
+        self.assertEqual(ValidModelSchema._meta.kubernetes_version, "v1")
+        self.assertEqual(ValidModelSchema._meta.kubernetes_kind, "Pod")
+        self.assertFalse(ValidModelSchema._meta.kubernetes_cluster_scoped)
+
+    @patch("kubernetes_backend.client.k8s_api.get_resource_schema")
+    @patch("kubernetes_backend.client.k8s_api.get_openapi_schema")
+    def test_field_generation(self, mock_get_openapi_schema, mock_get_resource_schema):
         # Arrange
         mock_get_openapi_schema.return_value = {
             "definitions": {
@@ -85,6 +121,13 @@ class TestKubernetesMetaModel(unittest.TestCase):
                         "count": {"type": "integer"},
                     }
                 }
+            }
+        }
+        mock_get_resource_schema.return_value = {
+            "properties": {
+                "spec": {"type": "object"},
+                "metadata": {"type": "object"},
+                "count": {"type": "integer"},
             }
         }
 
@@ -226,8 +269,8 @@ class TestKubernetesMetaModel(unittest.TestCase):
                     app_label = "kubernetes_backend"
 
                 class KubernetesMeta:
-                    api_version = "v1"
                     group = "core"
+                    version = "v1"
 
 
 class TestKubernetesModel(unittest.TestCase):
@@ -240,6 +283,11 @@ class TestKubernetesModel(unittest.TestCase):
         )
         cls.mock_get_openapi_schema = cls.get_openapi_schema_patch.start()
         cls.mock_get_openapi_schema.return_value = {"definitions": {}}
+        cls.get_resource_schema_patch = patch(
+            "kubernetes_backend.client.k8s_api.get_resource_schema"
+        )
+        cls.mock_get_resource_schema = cls.get_resource_schema_patch.start()
+        cls.mock_get_resource_schema.return_value = {}
 
         # Define test models once to avoid re-registration warnings
         class CoreModel(KubernetesModel):
@@ -296,6 +344,7 @@ class TestKubernetesModel(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        cls.get_resource_schema_patch.stop()
         cls.get_openapi_schema_patch.stop()
 
         super().tearDownClass()
@@ -316,7 +365,7 @@ class TestKubernetesModel(unittest.TestCase):
         # Check manager via concrete subclass, abstract models may not bind it directly
         self.assertTrue(hasattr(self.CoreModel, "objects"))
 
-    @patch("kubernetes_backend.models.KubernetesModel.get_api_client")
+    @patch("kubernetes_backend.client.k8s_api.get_api_client")
     def test_save_cluster_scoped_with_namespace_raises_error(self, mock_get_client):
         # Arrange
         instance = self.NamespaceModel(name="test", namespace="custom")
@@ -325,7 +374,7 @@ class TestKubernetesModel(unittest.TestCase):
         with self.assertRaises(ValueError):
             instance.save()
 
-    @patch("kubernetes_backend.models.KubernetesModel.get_api_client")
+    @patch("kubernetes_backend.client.k8s_api.get_api_client")
     def test_save_sets_default_namespace(self, mock_get_client):
         # Arrange
         instance = self.CoreModel(name="test-pod")
@@ -341,7 +390,7 @@ class TestKubernetesModel(unittest.TestCase):
             namespace="default", body=instance._to_kubernetes_resource()
         )
 
-    @patch("kubernetes_backend.models.KubernetesModel.get_api_client")
+    @patch("kubernetes_backend.client.k8s_api.get_api_client")
     def test_save_core_namespaced(self, mock_get_client):
         # Arrange
         instance = self.CoreModel(name="test-pod", namespace="default")
@@ -356,7 +405,7 @@ class TestKubernetesModel(unittest.TestCase):
             namespace="default", body=instance._to_kubernetes_resource()
         )
 
-    @patch("kubernetes_backend.models.KubernetesModel.get_api_client")
+    @patch("kubernetes_backend.client.k8s_api.get_api_client")
     def test_save_core_cluster_scoped(self, mock_get_client):
         # Arrange
         instance = self.NamespaceModel(name="test-namespace")
@@ -371,7 +420,7 @@ class TestKubernetesModel(unittest.TestCase):
             body=instance._to_kubernetes_resource()
         )
 
-    @patch("kubernetes_backend.models.KubernetesModel.get_api_client")
+    @patch("kubernetes_backend.client.k8s_api.get_api_client")
     def test_save_custom_namespaced(self, mock_get_client):
         # Arrange
         instance = self.CustomModel(name="test-custom", namespace="default")
@@ -391,10 +440,12 @@ class TestKubernetesModel(unittest.TestCase):
             body=instance._to_kubernetes_resource(),
         )
 
-    @patch("kubernetes_backend.models.KubernetesModelMeta.__new__")
-    def test_to_kubernetes_resource_namespaced(self, mock_new):
+    @patch("kubernetes_backend.client.k8s_api.get_resource_schema")
+    def test_to_kubernetes_resource_namespaced(self, mock_get_resource_schema):
         # Arrange
-        mock_new.return_value = self.CoreModel
+        mock_get_resource_schema.return_value = {
+            "properties": {"spec": {"type": "object"}}
+        }
         instance = self.CoreModel(
             name="test-pod",
             namespace="default",
@@ -460,19 +511,19 @@ class TestKubernetesModel(unittest.TestCase):
         # Assert
         self.assertEqual(result, "test-namespace (cluster-wide)")
 
-    @patch("kubernetes_backend.models.KubernetesModelMeta.__new__")
-    def test_json_serialization(self, mock_new):
+    @patch("kubernetes_backend.client.k8s_api.get_resource_schema")
+    def test_json_serialization(self, mock_get_resource_schema):
         """Test JSON serialization handles datetime and UUID types."""
         # Arrange
-        mock_new.return_value = self.CustomModel
+        mock_get_resource_schema.return_value = {
+            "properties": {"etc": {"type": "object"}}
+        }
         instance = self.CustomModel(
-            **dict(
-                name="test-resource",
-                uid=uuid.UUID("11111111-1111-1111-1111-111111111111"),
-                etc={
-                    "creationTimestamp": datetime(2020, 1, 2, 3, 4, 5),
-                },
-            )
+            name="test-resource",
+            uid=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+            etc={
+                "creationTimestamp": datetime(2020, 1, 2, 3, 4, 5),
+            },
         )
 
         # Act
