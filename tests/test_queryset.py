@@ -28,9 +28,9 @@ class TestKubernetesQuerySet(unittest.TestCase):
         cls.mock_get_openapi_schema.return_value = {"definitions": {}}
 
         cls.get_api_client_patch = patch(
-            "kubernetes_backend.models.KubernetesModel.get_api_client"
+            "kubernetes_backend.client.k8s_api.get_api_client"
         )
-        cls.mock_get_openapi_schema = cls.get_api_client_patch.start()
+        cls.mock_get_api_client = cls.get_api_client_patch.start()
 
         class CorePodModel(KubernetesModel):
             class Meta:
@@ -204,6 +204,12 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
         cls.mock_get_openapi_schema = cls.get_openapi_schema_patch.start()
         cls.mock_get_openapi_schema.return_value = {"definitions": {}}
 
+        cls.get_resource_schema_patch = patch(
+            "kubernetes_backend.client.k8s_api.get_resource_schema"
+        )
+        cls.mock_get_resource_schema = cls.get_resource_schema_patch.start()
+        cls.mock_get_resource_schema.return_value = {}
+
         class Pod(KubernetesModel):
             class Meta:
                 app_label = "kubernetes_backend"
@@ -220,6 +226,7 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        cls.get_resource_schema_patch.stop()
         cls.get_openapi_schema_patch.stop()
 
         return super().tearDownClass()
@@ -267,8 +274,10 @@ class TestKubernetesQuerySetFilters(unittest.TestCase):
         self.mock_api.list_pod_for_all_namespaces.return_value = mock_response
 
         # Patch the get_api_client method to return our mock API
+        from kubernetes_backend.client import k8s_api
+
         self.patcher = patch.object(
-            self.Pod, "get_api_client", return_value=self.mock_api
+            k8s_api, "get_api_client", return_value=self.mock_api
         )
         self.patcher.start()
 
