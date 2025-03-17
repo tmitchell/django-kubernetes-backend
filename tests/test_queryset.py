@@ -286,6 +286,134 @@ class TestKubernetesQuerySet(unittest.TestCase):
         self.assertNotEqual(qs1, qs3)  # Different order
 
 
+class TestKubernetesQuerySetFetch(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+
+        cls.get_openapi_schema_patch = patch(
+            "kubernetes_backend.client.k8s_api.get_openapi_schema"
+        )
+        cls.mock_get_openapi_schema = cls.get_openapi_schema_patch.start()
+        cls.mock_get_openapi_schema.return_value = {"definitions": {}}
+
+        class FetchNamespace(KubernetesModel):
+            class Meta:
+                app_label = "kubernetes_backend"
+
+            class KubernetesMeta:
+                version = "v1"
+                kind = "Namespace"
+                cluster_scoped = True
+                require_schema = False
+
+        cls.Namespace = FetchNamespace
+
+        cls.namespace_items = [
+            {
+                "metadata": {
+                    "name": "ns1",
+                    "uid": str(uuid.uuid4()),
+                    "labels": {"env": "prod"},
+                    "annotations": {"owner": "admin"},
+                },
+            },
+            {
+                "metadata": {
+                    "name": "ns2",
+                    "uid": str(uuid.uuid4()),
+                    "labels": {"env": "dev"},
+                    "annotations": {"owner": "dev"},
+                },
+            },
+        ]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.get_openapi_schema_patch.stop()
+
+        super().tearDownClass()
+
+    def test_fetch_all_cluster_scoped(self):
+        """Test fetching all cluster-scoped resources (e.g., Namespaces)."""
+        # Arrange
+        mock_response = MagicMock()
+        mock_response.items = self.namespace_items
+        mock_api = Mock(spec=client.CoreV1Api)
+        mock_api.list_namespace.return_value = mock_response
+
+        with patch(
+            "kubernetes_backend.client.k8s_api.get_api_client", return_value=mock_api
+        ):
+            # Act
+            qs = KubernetesQuerySet(self.Namespace)
+            results = qs.all()
+
+            # Assert
+            self.assertEqual(len(results), 2)
+            self.assertEqual(results[0].name, "ns1")
+            self.assertEqual(results[0].labels, {"env": "prod"})
+            self.assertEqual(results[0].annotations, {"owner": "admin"})
+            self.assertEqual(results[1].name, "ns2")
+            self.assertEqual(results[1].labels, {"env": "dev"})
+            self.assertEqual(results[1].annotations, {"owner": "dev"})
+            mock_api.list_namespace.assert_called_once()
+
+    def test_fetch_all_namespace_scoped(self):
+        """Test fetching all namespace-scoped resources (e.g., Pods)."""
+
+        class FetchPod(KubernetesModel):
+            class Meta:
+                app_label = "kubernetes_backend"
+
+            class KubernetesMeta:
+                group = "core"
+                version = "v1"
+                kind = "Pod"
+                require_schema = False
+
+        # Arrange
+        pod_items = [
+            {
+                "metadata": {
+                    "name": "pod1",
+                    "uid": str(uuid.uuid4()),
+                    "labels": {"env": "prod"},
+                    "annotations": {"owner": "admin"},
+                },
+            },
+            {
+                "metadata": {
+                    "name": "pod2",
+                    "uid": str(uuid.uuid4()),
+                    "labels": {"env": "dev"},
+                    "annotations": {"owner": "dev"},
+                },
+            },
+        ]
+        mock_response = MagicMock()
+        mock_response.items = pod_items
+        mock_api = Mock(spec=client.CoreV1Api)
+        mock_api.list_pod_for_all_namespaces.return_value = mock_response
+
+        with patch(
+            "kubernetes_backend.client.k8s_api.get_api_client", return_value=mock_api
+        ):
+            # Act
+            qs = KubernetesQuerySet(FetchPod)
+            results = qs.all()
+
+            # Assert
+            self.assertEqual(len(results), 2)
+            self.assertEqual(results[0].name, "pod1")
+            self.assertEqual(results[0].labels, {"env": "prod"})
+            self.assertEqual(results[0].annotations, {"owner": "admin"})
+            self.assertEqual(results[1].name, "pod2")
+            self.assertEqual(results[1].labels, {"env": "dev"})
+            self.assertEqual(results[1].annotations, {"owner": "dev"})
+            mock_api.list_pod_for_all_namespaces.assert_called_once()
+
+
 class TestKubernetesQuerySetFilters(unittest.TestCase):
     """More in-depth queryset tests that rely on data to work with"""
 
