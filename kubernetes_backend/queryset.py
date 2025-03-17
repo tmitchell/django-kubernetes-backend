@@ -149,6 +149,19 @@ class KubernetesQuerySet:
             self._fetch_all()
         return len(self._result_cache)
 
+    def __eq__(self, other):
+        """Compare querysets based on their result sets."""
+        if not isinstance(other, KubernetesQuerySet):
+            return False
+        if self.model != other.model:
+            return False
+        # Fetch results if not cached
+        if self._result_cache is None:
+            self._fetch_all()
+        if other._result_cache is None:
+            other._fetch_all()
+        return self._result_cache == other._result_cache
+
     def count(self):
         """Return the number of items in the queryset.
 

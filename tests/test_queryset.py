@@ -238,6 +238,20 @@ class TestKubernetesQuerySet(unittest.TestCase):
         qs._fetch_all()
         self.assertEqual(qs._result_cache, [])
 
+    def test_queryset_equality(self):
+        """Test queryset equality based on contents."""
+        qs1 = KubernetesQuerySet(self.CorePodModel)
+        qs2 = KubernetesQuerySet(self.CorePodModel)
+        pod1 = self.CorePodModel(uid=uuid.uuid4(), name="pod1")
+        pod2 = self.CorePodModel(uid=uuid.uuid4(), name="pod2")
+        qs1._result_cache = [pod1, pod2]
+        qs2._result_cache = [pod1, pod2]
+        qs3 = KubernetesQuerySet(self.CorePodModel)
+        qs3._result_cache = [pod2, pod1]  # Different order
+
+        self.assertEqual(qs1, qs2)  # Same contents
+        self.assertNotEqual(qs1, qs3)  # Different order
+
 
 class TestKubernetesQuerySetFilters(unittest.TestCase):
     """More in-depth queryset tests that rely on data to work with"""
