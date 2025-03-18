@@ -101,6 +101,7 @@ class KubernetesAPI:
             logger.debug(f"Using {api_class_name} on K8s client")
             api_class = getattr(self._client, api_class_name)
             return api_class()
+
         logger.debug("Falling back to CustomObjectsApi")
         return self._client.CustomObjectsApi()
 

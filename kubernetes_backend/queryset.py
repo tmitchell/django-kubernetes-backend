@@ -1,11 +1,9 @@
 import logging
+import re
 import uuid
 
 from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
 from django.db.models import Q
-from kubernetes.client.exceptions import ApiException
-
-from kubernetes_backend.client import k8s_api
 
 logger = logging.getLogger(__name__)
 
@@ -31,31 +29,24 @@ class KubernetesQuerySet:
         plural = self.model._meta.kubernetes_plural
         cluster_scoped = self.model._meta.kubernetes_cluster_scoped
 
-        def fetch_custom_objects(namespaces):
-            for ns in namespaces:
-                try:
-                    response = api.list_namespaced_custom_object(
-                        group, version, ns, plural
-                    )
-                    for i in response["items"]:
-                        yield i
-                except ApiException as e:
-                    # Ignore if CR doesn’t exist in this namespace
-                    if e.status != 404:
-                        pass
-
+        # import pdb; pdb.set_trace()
         if self.model.is_custom_resource():
-            # Fetch CRs across all namespaces
-            core_api = k8s_api.get_api_client("core", "v1")
-            namespaces = [ns.metadata.name for ns in core_api.list_namespace().items]
-            items = fetch_custom_objects(namespaces)
-        else:
             if cluster_scoped:
-                method = f"list_{kind.lower()}"
+                response = api.list_cluster_custom_object(group, version, plural)
+                items = response["items"]
+            else:
+                response = api.list_custom_object_for_all_namespaces(
+                    group, version, plural
+                )
+                items = response["items"]
+        else:
+            snake_case = re.sub(r"([a-z])([A-Z])", r"\1_\2", kind).lower()
+            if cluster_scoped:
+                method = f"list_{snake_case}"
                 response = getattr(api, method)()
                 items = response.items
             else:
-                method = f"list_{kind.lower()}_for_all_namespaces"
+                method = f"list_{snake_case}_for_all_namespaces"
                 response = getattr(api, method)()
                 items = response.items
 

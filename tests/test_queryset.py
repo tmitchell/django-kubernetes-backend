@@ -215,14 +215,9 @@ class TestKubernetesQuerySet(unittest.TestCase):
     def test_fetch_all_custom_resource_error(self, mock_get_api_client):
         """Test _fetch_all with custom resource and API errors."""
         mock_api = Mock()
-        mock_api.list_namespaced_custom_object.side_effect = (
+        mock_api.list_custom_object_for_all_namespaces.side_effect = (
             client.exceptions.ApiException(status=403)
         )
-        mock_core_api = Mock()
-        mock_core_api.list_namespace.return_value = Mock(
-            items=[Mock(metadata=Mock(name="default"))]
-        )
-        mock_get_api_client.side_effect = [mock_api, mock_core_api]
 
         class CustomModelFoo(KubernetesModel):
             class Meta:
@@ -237,39 +232,6 @@ class TestKubernetesQuerySet(unittest.TestCase):
         qs = KubernetesQuerySet(CustomModelFoo)
         qs._fetch_all()
         self.assertEqual(qs._result_cache, [])
-
-    @patch("kubernetes_backend.client.k8s_api.get_api_client")
-    def test_fetch_all_custom_resource_success_and_error(self, mock_get_api_client):
-        """Test _fetch_all with custom resources, both success and non-404 error."""
-        mock_api = Mock()
-        # First namespace succeeds, second fails with 500
-        mock_api.list_namespaced_custom_object.side_effect = [
-            {"items": [{"metadata": {"uid": "123", "name": "cr1"}}]},
-            client.exceptions.ApiException(status=500),
-        ]
-        mock_core_api = Mock()
-        mock_core_api.list_namespace.return_value = Mock(
-            items=[
-                Mock(metadata=Mock(name="ns1")),
-                Mock(metadata=Mock(name="ns2")),
-            ]
-        )
-        mock_get_api_client.side_effect = [mock_api, mock_core_api]
-
-        class CustomModelBaz(KubernetesModel):
-            class Meta:
-                app_label = "kubernetes_backend"
-
-            class KubernetesMeta:
-                group = "custom.example.com"
-                version = "v1"
-                kind = "Custom"
-                require_schema = False
-
-        qs = KubernetesQuerySet(CustomModelBaz)
-        qs._fetch_all()
-        self.assertEqual(len(qs._result_cache), 1)  # One successful fetch
-        self.assertEqual(qs._result_cache[0].name, "cr1")
 
     def test_queryset_equality(self):
         """Test queryset equality based on contents."""
@@ -412,6 +374,107 @@ class TestKubernetesQuerySetFetch(unittest.TestCase):
             self.assertEqual(results[1].labels, {"env": "dev"})
             self.assertEqual(results[1].annotations, {"owner": "dev"})
             mock_api.list_pod_for_all_namespaces.assert_called_once()
+
+    def test_fetch_all_custom_namespace_scoped(self):
+        """Test fetching all custom namespace-scoped resources"""
+
+        class FetchHerp(KubernetesModel):
+            class Meta:
+                app_label = "kubernetes_backend"
+
+            class KubernetesMeta:
+                group = "example.com"
+                version = "v1alpha1"
+                kind = "Herp"
+                require_schema = False
+
+        # Arrange
+        herp_items = [
+            {
+                "metadata": {
+                    "name": "herp1",
+                    "uid": str(uuid.uuid4()),
+                },
+            },
+            {
+                "metadata": {
+                    "name": "herp2",
+                    "uid": str(uuid.uuid4()),
+                },
+            },
+        ]
+
+        # CustomObjectsApi returns a dict, unlike the CoreV1Api
+        mock_response = MagicMock()
+        mock_response.__getitem__.side_effect = lambda key: (
+            herp_items if key == "items" else None
+        )
+        mock_api = Mock(spec=client.CustomObjectsApi)
+        mock_api.list_custom_object_for_all_namespaces.return_value = mock_response
+
+        with patch(
+            "kubernetes_backend.client.k8s_api.get_api_client", return_value=mock_api
+        ):
+            # Act
+            qs = KubernetesQuerySet(FetchHerp)
+            results = qs.all()
+
+            # Assert
+            self.assertEqual(len(results), 2)
+            self.assertEqual(results[0].name, "herp1")
+            self.assertEqual(results[1].name, "herp2")
+            mock_api.list_custom_object_for_all_namespaces.assert_called_once()
+
+    def test_fetch_all_custom_cluster_scoped(self):
+        """Test fetching all custom cluster-scoped resources"""
+
+        class FetchDerp(KubernetesModel):
+            class Meta:
+                app_label = "kubernetes_backend"
+
+            class KubernetesMeta:
+                group = "example.com"
+                version = "v1alpha1"
+                kind = "Derp"
+                cluster_scoped = True
+                require_schema = False
+
+        # Arrange
+        derp_items = [
+            {
+                "metadata": {
+                    "name": "derp1",
+                    "uid": str(uuid.uuid4()),
+                },
+            },
+            {
+                "metadata": {
+                    "name": "derp2",
+                    "uid": str(uuid.uuid4()),
+                },
+            },
+        ]
+
+        # CustomObjectsApi returns a dict, unlike the CoreV1Api
+        mock_response = MagicMock()
+        mock_response.__getitem__.side_effect = lambda key: (
+            derp_items if key == "items" else None
+        )
+        mock_api = Mock(spec=client.CustomObjectsApi)
+        mock_api.list_cluster_custom_object.return_value = mock_response
+
+        with patch(
+            "kubernetes_backend.client.k8s_api.get_api_client", return_value=mock_api
+        ):
+            # Act
+            qs = KubernetesQuerySet(FetchDerp)
+            results = qs.all()
+
+            # Assert
+            self.assertEqual(len(results), 2)
+            self.assertEqual(results[0].name, "derp1")
+            self.assertEqual(results[1].name, "derp2")
+            mock_api.list_cluster_custom_object.assert_called_once()
 
 
 class TestKubernetesQuerySetFilters(unittest.TestCase):
