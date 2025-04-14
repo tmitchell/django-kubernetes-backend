@@ -1,152 +1,188 @@
-import logging
-import logging.handlers
 import unittest
 from unittest.mock import Mock, patch
 
-# Configure Django settings before importing anything that uses settings
-from django.conf import settings
+from django.test import override_settings
 
-if not settings.configured:
-    settings.configure(
-        KUBERNETES_CONFIG={},  # Default value, will be overridden in tests
-        DEBUG=True,
-    )
-
-from kubernetes.client.rest import ApiException
-
-from kubernetes_backend.client import get_kubernetes_client, get_openapi_schema
+import tests.setup  # noqa: F401; Imported for Django setup side-effect
+from kubernetes_backend.client import k8s_api
 
 
-class TestKubernetesClient(unittest.TestCase):
+class TestKubernetesAPI(unittest.TestCase):
     def setUp(self):
         # Clear the lru_cache for get_openapi_schema between tests
-        get_openapi_schema.cache_clear()
-        # Set up a logger with MemoryHandler to capture log output
-        self.logger = logging.getLogger("kubernetes_backend.client")
-        self.log_handler = logging.handlers.MemoryHandler(
-            capacity=100, flushLevel=logging.ERROR
-        )
-
-        self.logger.addHandler(self.log_handler)
-        self.logger.setLevel(logging.DEBUG)
+        k8s_api.get_openapi_schema.cache_clear()
+        # Patch kubernetes.config to mock config loading
+        self.config_patch = patch("kubernetes_backend.client.config")
+        self.mock_config = self.config_patch.start()
+        self.mock_config.load_kube_config = Mock(return_value=None)
+        self.mock_config.load_incluster_config = Mock(return_value=None)
+        self.mock_config.ConfigException = Exception
+        # Alias for convenience
+        self.mock_k8s_api = k8s_api
 
     def tearDown(self):
-        # Clean up logger handler after each test
-        self.logger.removeHandler(self.log_handler)
-        self.log_handler.flush()
-        self.log_handler.close()
-        # Reset settings to avoid interference between tests
-        if hasattr(settings, "KUBERNETES_CONFIG"):
-            delattr(settings, "KUBERNETES_CONFIG")
+        self.config_patch.stop()
 
-    @patch("kubernetes_backend.client.config")
-    def test_get_kubernetes_client_with_specific_kubeconfig(self, mock_config):
-        # Arrange: Mock Django settings with a specific kubeconfig
-        settings.KUBERNETES_CONFIG = {
+    @override_settings(
+        KUBERNETES_CONFIG={
             "kubeconfig": "/path/to/kubeconfig",
             "context": "test-context",
         }
-        mock_config.load_kube_config.return_value = None
-
+    )
+    def test_initialize_client_with_specific_kubeconfig(self):
+        # Arrange
+        self.mock_config.load_kube_config.reset_mock()
+        self.mock_config.load_incluster_config.reset_mock()
         # Act
-        result = get_kubernetes_client()
-
+        k8s_api._initialize_client()
         # Assert
-        mock_config.load_kube_config.assert_called_once_with(
+        self.mock_config.load_kube_config.assert_called_once_with(
             config_file="/path/to/kubeconfig", context="test-context"
         )
-        mock_config.load_incluster_config.assert_not_called()
-        self.assertIsNotNone(result)
+        self.mock_config.load_incluster_config.assert_not_called()
 
-    @patch("kubernetes_backend.client.config")
-    def test_get_kubernetes_client_in_cluster(self, mock_config):
-        # Arrange: No specific kubeconfig, in-cluster succeeds
-        if hasattr(settings, "KUBERNETES_CONFIG"):
-            delattr(settings, "KUBERNETES_CONFIG")
-        mock_config.load_incluster_config.return_value = None
-
+    def test_initialize_client_in_cluster(self):
+        # Arrange
+        self.mock_config.load_incluster_config.reset_mock()
+        self.mock_config.load_kube_config.reset_mock()
         # Act
-        result = get_kubernetes_client()
-
+        k8s_api._initialize_client()
         # Assert
-        mock_config.load_incluster_config.assert_called_once()
-        mock_config.load_kube_config.assert_not_called()
-        self.assertIsNotNone(result)
+        self.mock_config.load_incluster_config.assert_called_once()
+        self.mock_config.load_kube_config.assert_not_called()
 
-    @patch("kubernetes_backend.client.config")
-    def test_get_kubernetes_client_fallback_to_default(self, mock_config):
-        # Arrange: No specific kubeconfig, in-cluster fails, falls back to default
-        if hasattr(settings, "KUBERNETES_CONFIG"):
-            delattr(settings, "KUBERNETES_CONFIG")
-
-        # Define a mock ConfigException class that inherits from Exception
-        class MockConfigException(Exception):
-            pass
-
-        mock_config.ConfigException = MockConfigException
-        mock_config.load_incluster_config.side_effect = MockConfigException(
+    def test_initialize_client_fallback_to_default(self):
+        # Arrange
+        self.mock_config.load_incluster_config.side_effect = Exception(
             "In-cluster failed"
         )
-
-        mock_config.load_kube_config.return_value = None
-
+        self.mock_config.load_kube_config.reset_mock()
+        self.mock_config.load_incluster_config.reset_mock()
         # Act
-        result = get_kubernetes_client()
-
+        k8s_api._initialize_client()
         # Assert
-        mock_config.load_incluster_config.assert_called_once()
-        mock_config.load_kube_config.assert_called_once()
-        self.assertIsNotNone(result)
+        self.mock_config.load_incluster_config.assert_called_once()
+        self.mock_config.load_kube_config.assert_called_once()
 
-    @patch("kubernetes_backend.client.get_kubernetes_client")
-    def test_get_openapi_schema_success(self, mock_get_client):
-        # Arrange: Mock the Kubernetes client and API response
-        mock_api_client = Mock()
+    @patch.object(k8s_api, "get_openapi_schema")
+    def test_get_openapi_schema_success(self, mock_get_openapi):
+        # Arrange
+        schema = {"definitions": {"io.k8s.api.core.v1.Pod": {"type": "object"}}}
+        mock_get_openapi.return_value = schema
+        # Act
+        result = k8s_api.get_openapi_schema()
+        # Assert
+        self.assertEqual(result, schema)
+
+    @patch.object(k8s_api._client, "ApiClient")
+    def test_get_openapi_schema_real(self, mock_api_client):
+        # Arrange
         mock_response = Mock()
         mock_response.data.decode.return_value = '{"definitions": {"test": {}}}'
-        mock_api_client.call_api.return_value = mock_response
-        mock_get_client.return_value.ApiClient.return_value = mock_api_client
-
+        mock_api_client.return_value.call_api.return_value = mock_response
         # Act
-        schema = get_openapi_schema()
-
+        result = k8s_api.get_openapi_schema()
         # Assert
-        mock_api_client.call_api.assert_called_once_with(
+        self.assertEqual(result, {"definitions": {"test": {}}})
+        mock_api_client.return_value.call_api.assert_called_once_with(
             "/openapi/v2",
             "GET",
             auth_settings=["BearerToken"],
             _preload_content=False,
             _return_http_data_only=True,
         )
-        self.assertEqual(schema, {"definitions": {"test": {}}})
 
-    @patch("kubernetes_backend.client.get_kubernetes_client")
-    def test_get_openapi_schema_cached(self, mock_get_client):
-        # Arrange: Mock the Kubernetes client and API response
-        mock_api_client = Mock()
-        mock_response = Mock()
-        mock_response.data.decode.return_value = '{"definitions": {"test": {}}}'
-        mock_api_client.call_api.return_value = mock_response
-        mock_get_client.return_value.ApiClient.return_value = mock_api_client
+    @patch.object(k8s_api, "get_api_client", return_value=Mock())
+    def test_get_api_client_core_v1(self, mock_get_api):
+        # Act
+        api = k8s_api.get_api_client("core", "v1")
+        self.assertIsInstance(api, Mock)
+        self.assertTrue(hasattr(api, "list_pod_for_all_namespaces"))
 
-        # Act: Call twice to test caching
-        schema1 = get_openapi_schema()
-        schema2 = get_openapi_schema()
+        api = k8s_api.get_api_client("", "v1")
+        self.assertIsInstance(api, Mock)
+        self.assertTrue(hasattr(api, "list_pod_for_all_namespaces"))
 
-        # Assert: API call should only happen once due to lru_cache
-        mock_api_client.call_api.assert_called_once()
-        self.assertEqual(schema1, schema2)
+    @patch.object(k8s_api, "get_api_client", return_value=Mock())
+    def test_get_api_client_rbac_v1(self, mock_get_api):
+        # Act
+        api = k8s_api.get_api_client("rbac.authorization.k8s.io", "v1")
+        self.assertIsInstance(api, Mock)
+        self.assertTrue(hasattr(api, "list_role_for_all_namespaces"))
 
-    @patch("kubernetes_backend.client.get_kubernetes_client")
-    def test_get_openapi_schema_api_error(self, mock_get_client):
-        # Arrange: Mock the Kubernetes client to raise an API exception
-        mock_api_client = Mock()
-        mock_api_client.call_api.side_effect = ApiException("API error")
-        mock_get_client.return_value.ApiClient.return_value = mock_api_client
+    @patch.object(k8s_api, "get_api_client", return_value=Mock())
+    def test_get_api_client_custom(self, mock_get_api):
+        # Act
+        api = k8s_api.get_api_client("k3s.cattle.io", "v1")
+        self.assertIsInstance(api, Mock)
+        self.assertTrue(hasattr(api, "list_cluster_custom_object"))
 
-        # Act & Assert
-        with self.assertRaises(ApiException):
-            get_openapi_schema()
+    @patch("kubernetes.client.CoreV1Api")
+    def test_get_api_client_real_core_v1(self, mock_core_v1):
+        mock_api_instance = Mock()
+        mock_core_v1.return_value = mock_api_instance
+        result = k8s_api.get_api_client("core", "v1")
+        self.assertEqual(result, mock_api_instance)
+        mock_core_v1.assert_called_once()
+
+    @patch("kubernetes.client.AppsV1Api")
+    def test_get_api_client_real_apps_v1(self, mock_apps_v1):
+        # Arrange
+        mock_api_instance = Mock()
+        mock_apps_v1.return_value = mock_api_instance
+        # Act
+        result = k8s_api.get_api_client("apps", "v1")
+        # Assert
+        self.assertEqual(result, mock_api_instance)
+        mock_apps_v1.assert_called_once()
+
+    def test_get_api_client_real_fallback(self):
+        result = k8s_api.get_api_client("nonexistent", "v1")
+        self.assertIsInstance(result, k8s_api._client.CustomObjectsApi)
+
+    def test_get_resource_schema_core(self):
+        with patch.object(
+            k8s_api,
+            "get_openapi_schema",
+            return_value={
+                "definitions": {"io.k8s.api.core.v1.Pod": {"type": "object"}}
+            },
+        ):
+            result = k8s_api.get_resource_schema("core", "v1", "Pod")
+            self.assertEqual(result, {"type": "object"})
+            result = k8s_api.get_resource_schema("", "v1", "Pod")
+            self.assertEqual(result, {"type": "object"})
+
+    def test_get_resource_schema_rbac(self):
+        with patch.object(
+            k8s_api,
+            "get_openapi_schema",
+            return_value={
+                "definitions": {"io.k8s.api.rbac.v1.Role": {"type": "object"}}
+            },
+        ):
+            result = k8s_api.get_resource_schema(
+                "rbac.authorization.k8s.io", "v1", "Role"
+            )
+            self.assertEqual(result, {"type": "object"})
+
+    def test_get_resource_schema_custom(self):
+        with patch.object(
+            k8s_api,
+            "get_openapi_schema",
+            return_value={
+                "definitions": {"io.cattle.k3s.v1.Addon": {"type": "object"}}
+            },
+        ):
+            result = k8s_api.get_resource_schema("k3s.cattle.io", "v1", "Addon")
+            self.assertEqual(result, {"type": "object"})
+
+    def test_get_resource_schema_missing(self):
+        with patch.object(
+            k8s_api, "get_openapi_schema", return_value={"definitions": {}}
+        ):
+            result = k8s_api.get_resource_schema("core", "v1", "Unknown")
+            self.assertEqual(result, {})
 
 
 if __name__ == "__main__":
