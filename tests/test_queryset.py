@@ -175,6 +175,20 @@ class TestKubernetesQuerySet(unittest.TestCase):
         mock_fetch_all.assert_not_called()
 
     @patch("kubernetes_backend.queryset.KubernetesQuerySet._fetch_all")
+    def test_exists(self, mock_fetch_all):
+        # Arrange
+        qs = KubernetesQuerySet(self.CorePodModel)
+        mock_fetch_all.return_value = None
+        qs._result_cache = [Mock(name="pod1"), Mock(name="pod2")]
+
+        # Act
+        result = qs.exists()
+
+        # Assert
+        self.assertTrue(result)
+        mock_fetch_all.assert_not_called()
+
+    @patch("kubernetes_backend.queryset.KubernetesQuerySet._fetch_all")
     def test_count(self, mock_fetch_all):
         # Arrange
         qs = KubernetesQuerySet(self.CorePodModel)

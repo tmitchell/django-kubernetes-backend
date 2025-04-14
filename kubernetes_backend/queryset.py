@@ -163,6 +163,15 @@ class KubernetesQuerySet:
             self._fetch_all()
         return len(self._result_cache)
 
+    def exists(self):
+        """Return whether or not there are any results in the queryset.
+
+        Fetches results if not cached.
+        """
+        if self._result_cache is None:
+            self._fetch_all()
+        return bool(self._result_cache)
+
     def filter(self, *args, **kwargs):
         """Filter the queryset based on Q objects or keyword arguments.
 
