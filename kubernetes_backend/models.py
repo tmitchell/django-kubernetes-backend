@@ -150,11 +150,11 @@ class KubernetesModel(models.Model, metaclass=KubernetesModelMeta):
         managed = False
 
     # Common Kubernetes metadata fields
-    uid = models.UUIDField(primary_key=True)
+    uid = models.UUIDField(primary_key=True, editable=False)
     name = models.CharField(max_length=255)
     namespace = models.CharField(max_length=255, null=True, blank=True)
-    labels = models.JSONField(default=dict)
-    annotations = models.JSONField(default=dict)
+    labels = models.JSONField(default=dict, null=True, blank=True)
+    annotations = models.JSONField(default=dict, null=True, blank=True)
 
     objects = KubernetesManager()
 
