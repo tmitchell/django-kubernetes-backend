@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from django.test import override_settings
+from kubernetes.client import api as real_api
 
 import tests.setup  # noqa: F401; Imported for Django setup side-effect
 from kubernetes_backend.client import k8s_api
@@ -92,29 +93,26 @@ class TestKubernetesAPI(unittest.TestCase):
             _return_http_data_only=True,
         )
 
-    @patch.object(k8s_api, "get_api_client", return_value=Mock())
-    def test_get_api_client_core_v1(self, mock_get_api):
+    def test_get_api_client_core_v1(self):
         # Act
         api = k8s_api.get_api_client("core", "v1")
-        self.assertIsInstance(api, Mock)
+        self.assertIsInstance(api, real_api.CoreV1Api)
         self.assertTrue(hasattr(api, "list_pod_for_all_namespaces"))
 
         api = k8s_api.get_api_client("", "v1")
-        self.assertIsInstance(api, Mock)
+        self.assertIsInstance(api, real_api.CoreV1Api)
         self.assertTrue(hasattr(api, "list_pod_for_all_namespaces"))
 
-    @patch.object(k8s_api, "get_api_client", return_value=Mock())
-    def test_get_api_client_rbac_v1(self, mock_get_api):
+    def test_get_api_client_rbac_v1(self):
         # Act
         api = k8s_api.get_api_client("rbac.authorization.k8s.io", "v1")
-        self.assertIsInstance(api, Mock)
+        self.assertIsInstance(api, real_api.RbacAuthorizationV1Api)
         self.assertTrue(hasattr(api, "list_role_for_all_namespaces"))
 
-    @patch.object(k8s_api, "get_api_client", return_value=Mock())
-    def test_get_api_client_custom(self, mock_get_api):
+    def test_get_api_client_custom(self):
         # Act
         api = k8s_api.get_api_client("k3s.cattle.io", "v1")
-        self.assertIsInstance(api, Mock)
+        self.assertIsInstance(api, real_api.CustomObjectsApi)
         self.assertTrue(hasattr(api, "list_cluster_custom_object"))
 
     @patch("kubernetes.client.CoreV1Api")
