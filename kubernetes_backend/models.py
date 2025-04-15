@@ -188,7 +188,7 @@ class KubernetesModel(models.Model, metaclass=KubernetesModelMeta):
         if namespaced:
             kwargs["namespace"] = self.namespace
 
-        # Construct method name based on object type, namespacing, and whether
+        # Construct method name based on object type, namespaced status, and whether
         # or not it already exists (has a uid)
         if self.uid is None:
             verb = "create"

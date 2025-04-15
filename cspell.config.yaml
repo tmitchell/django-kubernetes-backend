@@ -1,0 +1,21 @@
+---
+$schema: https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json
+version: '0.2'
+dictionaries:
+  - django
+ignorePaths:
+  - tests/*
+  - .gitignore
+  - .pre-commit-config.yaml
+  - pyproject.toml
+words:
+  - admissionregistration
+  - apiextensions
+  - apiregistration
+  - apiserver
+  - flowcontrol
+  - imagepolicy
+  - incluster
+  - kubeconfig
+  - pyproject
+  - uids

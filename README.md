@@ -9,7 +9,7 @@ A Django model backend that overlays Kubernetes (K8s) resources and Custom Resou
   - Configurable authentication using kubeconfig (from environment, specific file, or in-cluster service account token).
 
 - **Model Design**:
-  - Uses a metaclass (`KubernetesModelBase`) to define models for Kubernetes resources, mimicking Django's model patterns.
+  - Uses a meta-class (`KubernetesModelBase`) to define models for Kubernetes resources, mimicking Django's model patterns.
   - Adds a `KubernetesMeta` inner class for specifying resource configuration (e.g. `resource_type`, `api_version`, `kind`, `namespace`, `cluster_scoped`).
 
 - **Dynamic Field Generation**:
