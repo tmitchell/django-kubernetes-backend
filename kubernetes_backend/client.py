@@ -103,6 +103,9 @@ class KubernetesAPI:
             return api_class()
 
         logger.debug("Falling back to CustomObjectsApi")
+        return self.get_custom_client()
+
+    def get_custom_client(self):
         return self._client.CustomObjectsApi()
 
     def get_resource_schema(self, group, version, kind):
