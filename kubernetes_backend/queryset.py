@@ -5,6 +5,8 @@ import uuid
 from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
 from django.db.models import Q
 
+from .client import k8s_api
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,15 +24,25 @@ class KubernetesQuerySet:
         self._result_cache = None
 
     def _fetch_all(self):
-        api = self.model.get_api_client()
         group = self.model._meta.kubernetes_group
         version = self.model._meta.kubernetes_version
         kind = self.model._meta.kubernetes_kind
         plural = self.model._meta.kubernetes_plural
         cluster_scoped = self.model._meta.kubernetes_cluster_scoped
 
-        # import pdb; pdb.set_trace()
-        if self.model.is_custom_resource():
+        if group in ("", "core"):
+            api = self.model.get_api_client()
+            snake_case = re.sub(r"([a-z])([A-Z])", r"\1_\2", kind).lower()
+            if cluster_scoped:
+                method = getattr(api, f"list_{snake_case}")
+                response = method()
+                items = response.items
+            else:
+                method = getattr(api, f"list_{snake_case}_for_all_namespaces")
+                response = method()
+                items = response.items
+        else:
+            api = k8s_api.get_custom_client()
             if cluster_scoped:
                 response = api.list_cluster_custom_object(group, version, plural)
                 items = response["items"]
@@ -39,16 +51,6 @@ class KubernetesQuerySet:
                     group, version, plural
                 )
                 items = response["items"]
-        else:
-            snake_case = re.sub(r"([a-z])([A-Z])", r"\1_\2", kind).lower()
-            if cluster_scoped:
-                method = f"list_{snake_case}"
-                response = getattr(api, method)()
-                items = response.items
-            else:
-                method = f"list_{snake_case}_for_all_namespaces"
-                response = getattr(api, method)()
-                items = response.items
 
         self._result_cache = [self._deserialize_resource(item) for item in items]
         return self
@@ -71,6 +73,7 @@ class KubernetesQuerySet:
             labels=metadata.get("labels", {}),
             annotations=metadata.get("annotations", {}),
         )
+        instance._metadata = metadata
 
         for field in self.model._meta.fields:
             field_name = field.name

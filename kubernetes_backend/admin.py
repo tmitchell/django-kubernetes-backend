@@ -58,10 +58,21 @@ class KubernetesAdmin(admin.ModelAdmin):
     the Admin layer thin and focused on display configuration.
     """
 
-    list_display = ("name", "namespace", "uid")
+    list_display = ("name", "namespace", "uid", "creation_timestamp")
     # list_filter = ("namespace", )
     search_fields = ("name", "namespace")
     ordering = ["name"]
+    readonly_fields = ["uid", "status"]
 
     def get_changelist(self, request, **kwargs):
         return KubernetesChangeList
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is not None:
+            # Editing an object
+            return self.readonly_fields + [
+                "namespace",
+            ]
+        else:
+            # Creating a new object
+            return self.readonly_fields

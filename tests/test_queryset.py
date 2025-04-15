@@ -225,11 +225,10 @@ class TestKubernetesQuerySet(unittest.TestCase):
             qs._deserialize_resource(resource_data)
         self.assertIn("to_dict()", str(cm.exception))
 
-    @patch("kubernetes_backend.client.k8s_api.get_api_client")
-    def test_fetch_all_custom_resource_error(self, mock_get_api_client):
+    @patch("kubernetes_backend.client.k8s_api.get_custom_client")
+    def test_fetch_all_custom_resource_error(self, mock_get_custom_client):
         """Test _fetch_all with custom resource and API errors."""
-        mock_api = Mock()
-        mock_api.list_custom_object_for_all_namespaces.side_effect = (
+        mock_get_custom_client.list_custom_object_for_all_namespaces.side_effect = (
             client.exceptions.ApiException(status=403)
         )
 
@@ -427,7 +426,7 @@ class TestKubernetesQuerySetFetch(unittest.TestCase):
         mock_api.list_custom_object_for_all_namespaces.return_value = mock_response
 
         with patch(
-            "kubernetes_backend.client.k8s_api.get_api_client", return_value=mock_api
+            "kubernetes_backend.client.k8s_api.get_custom_client", return_value=mock_api
         ):
             # Act
             qs = KubernetesQuerySet(FetchHerp)
@@ -478,7 +477,7 @@ class TestKubernetesQuerySetFetch(unittest.TestCase):
         mock_api.list_cluster_custom_object.return_value = mock_response
 
         with patch(
-            "kubernetes_backend.client.k8s_api.get_api_client", return_value=mock_api
+            "kubernetes_backend.client.k8s_api.get_custom_client", return_value=mock_api
         ):
             # Act
             qs = KubernetesQuerySet(FetchDerp)
