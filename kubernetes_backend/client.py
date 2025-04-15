@@ -115,7 +115,7 @@ class KubernetesAPI:
             key = f"io.k8s.api.core.{version}.{kind}"
         else:
             if group in K8S_DEFAULT_GROUPS:
-                normalized_group = group.rstrip(".k8s.io")
+                normalized_group = group.removesuffix(".k8s.io")
                 # if dotted, just grab the left-most (e.g. rbac.authorization -> rbac)
                 prefix = normalized_group.split(".")[0]
                 group = f"{prefix}.api.k8s.io"
