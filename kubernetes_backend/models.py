@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
@@ -250,3 +251,13 @@ class KubernetesModel(models.Model, metaclass=KubernetesModelMeta):
         if self._meta.kubernetes_cluster_scoped:
             return f"{self.name} (cluster-wide)"
         return f"{self.name} ({self.namespace})"
+
+    @property
+    def creation_timestamp(self):
+        ts = self.metadata.get("creationTimestamp", None)
+        if ts:
+            return datetime.fromisoformat(ts)
+
+    @property
+    def metadata(self):
+        return self._metadata

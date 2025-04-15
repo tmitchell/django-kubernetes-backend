@@ -58,7 +58,7 @@ class KubernetesAdmin(admin.ModelAdmin):
     the Admin layer thin and focused on display configuration.
     """
 
-    list_display = ("name", "namespace", "uid")
+    list_display = ("name", "namespace", "uid", "creation_timestamp")
     # list_filter = ("namespace", )
     search_fields = ("name", "namespace")
     ordering = ["name"]

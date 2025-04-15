@@ -73,6 +73,7 @@ class KubernetesQuerySet:
             labels=metadata.get("labels", {}),
             annotations=metadata.get("annotations", {}),
         )
+        instance._metadata = metadata
 
         for field in self.model._meta.fields:
             field_name = field.name
