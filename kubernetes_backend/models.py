@@ -180,39 +180,42 @@ class KubernetesModel(models.Model, metaclass=KubernetesModelMeta):
             self.namespace = "default"
 
         api_client = self.get_api_client()
-        resource_data = self._to_kubernetes_resource()
         kind = self._meta.kubernetes_kind
         plural = self._meta.kubernetes_plural
 
-        # Normalize method name to match API method naming conventions
-        method_name = (
-            f"create_namespaced_{kind.lower()}"
-            if namespaced
-            else f"create_{kind.lower()}"
-        )
-        if hasattr(api_client, method_name):
-            method = getattr(api_client, method_name)
-            return (
-                method(namespace=self.namespace, body=resource_data)
-                if namespaced
-                else method(body=resource_data)
-            )
+        kwargs = {"body": self._to_kubernetes_resource()}
+        if namespaced:
+            kwargs["namespace"] = self.namespace
 
-        # Fall back to CustomObjects API (CRDs)
-        method_name = (
-            "create_namespaced_custom_object"
-            if namespaced
-            else "create_cluster_custom_object"
-        )
-        if hasattr(api_client, method_name):
+        # Construct method name based on object type, namespacing, and whether
+        # or not it already exists (has a uid)
+        if self.uid is None:
+            verb = "create"
+        else:
+            verb = "replace"
+            kwargs["name"] = self.name
+
+        if self.__class__.is_custom_resource():
+            method_name = (
+                f"{verb}_namespaced_custom_object"
+                if namespaced
+                else f"{verb}_cluster_custom_object"
+            )
             method = getattr(api_client, method_name)
             return method(
                 group=self._meta.kubernetes_group,
                 version=self._meta.kubernetes_version,
-                namespace=self.namespace if namespaced else None,
                 plural=plural,
-                body=resource_data,
+                **kwargs,
             )
+        else:
+            method_name = (
+                f"{verb}_namespaced_{kind.lower()}"
+                if namespaced
+                else f"{verb}_{kind.lower()}"
+            )
+            method = getattr(api_client, method_name)
+            return method(**kwargs)
 
     def _to_kubernetes_resource(self):
         """Convert the model instance to a Kubernetes resource dictionary."""
@@ -239,11 +242,7 @@ class KubernetesModel(models.Model, metaclass=KubernetesModelMeta):
             if field.name not in ("name", "namespace", "labels", "annotations", "id"):
                 value = getattr(self, field.name, None)
                 if value is not None:
-                    # Handle nested fields (e.g. spec, status) appropriately
-                    if field.name in ("spec", "status"):
-                        resource_data[field.name] = value
-                    else:
-                        resource_data.setdefault("spec", {})[field.name] = value
+                    resource_data[field.name] = value
 
         return resource_data
 
