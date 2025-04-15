@@ -164,6 +164,17 @@ class TestKubernetesAPI(unittest.TestCase):
             )
             self.assertEqual(result, {"type": "object"})
 
+    def test_get_resource_schema_apps(self):
+        with patch.object(
+            k8s_api,
+            "get_openapi_schema",
+            return_value={
+                "definitions": {"io.k8s.api.apps.v1.Deployment": {"type": "object"}}
+            },
+        ):
+            result = k8s_api.get_resource_schema("apps", "v1", "Deployment")
+            self.assertEqual(result, {"type": "object"})
+
     def test_get_resource_schema_custom(self):
         with patch.object(
             k8s_api,
